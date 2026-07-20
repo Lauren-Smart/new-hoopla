@@ -5,7 +5,7 @@ import SmartIcon from "./SmartIcon";
 import { SALES_TEAM, PERFORMANCE_TEAM, FY_START } from "../lib/rosters";
 import { CSS } from "./styles";
 
-const STATE_POLL_MS = 5000;      // check for new celebration events every 20 s
+const STATE_POLL_MS = 5000;      // check for new celebration events every 5 s
 const SYNC_MS = 2 * 60 * 1000;   // HubSpot safety-net sync every 2 min
 const SCREEN_ROTATE_MS = 20000;  // rotate screens every 10 s
 const CELEBRATION_MS = 14000;
