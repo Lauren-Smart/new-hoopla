@@ -88,4 +88,4 @@ show years of service. To exclude anyone, add their name to `EXCLUDED_NAMES` in
 - **Team changes:** edit `lib/rosters.js`, push — Vercel redeploys automatically.
 - **New financial year:** update `FY_START` in `lib/rosters.js`.
 - **The TV:** open `/` in a browser, press F11. Screens rotate every 20 s;
-  birthday/anniversary/photo screens only appear when they have content.
+  birthday/anniversary/photo screens only appear when they have content. 
