@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { list } from "@vercel/blob";
 import { getJson, getEventsSince, getLatestEventId } from "../../../lib/redis";
 import { getCelebrants } from "../../../lib/employmenthero";
+import { buildSmartZeroFunnel, buildGp } from "../../../lib/hubspot";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +12,11 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const since = Number(searchParams.get("since") ?? -1);
 
-  const [deals, deliveries, announcements, latestEventId, celebrants] = await Promise.all([
+  const [deals, deliveries, announcements, smartZeroDeals, latestEventId, celebrants] = await Promise.all([
     getJson("deals", []),
     getJson("deliveries", []),
     getJson("announcements", []),
+    getJson("smartZero", []),
     getLatestEventId(),
     getCelebrants(),
   ]);
@@ -26,13 +28,16 @@ export async function GET(request) {
       .sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt))
       .map((b) => ({ url: b.url, pathname: b.pathname }));
   } catch {
-    photos = []; // Blob store not configured yet — photos screen just won't show
+    photos = [];
   }
 
   const events = since >= 0 ? await getEventsSince(since) : [];
+  const smartZero = buildSmartZeroFunnel(smartZeroDeals);
+  const gp = buildGp(deals);
 
   return NextResponse.json({
     deals, deliveries, announcements, photos, events, latestEventId,
     birthdays: celebrants.birthdays, anniversaries: celebrants.anniversaries,
+    smartZero, gp,
   });
 }
