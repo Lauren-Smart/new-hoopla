@@ -54,6 +54,19 @@ export const CSS = `
 .sw-main { flex: 1; padding: 26px 36px 10px; align-content: start; }
 .sw-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
 
+/* Consistent big screen heading across all screens */
+.sw-screen-head {
+  margin-bottom: 22px; position: relative; z-index: 2;
+}
+.sw-screen-head .sw-board-eyebrow { margin-bottom: 6px; color: var(--sky); }
+.sw-screen-head h2 {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(34px, 4vw, 56px); margin: 0; line-height: 1;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #FFFFFF;
+}
+.sw-sales, .sw-projects, .sw-gp { display: flex; flex-direction: column; }
+.sw-sales .sw-two-col { flex: 1; }
+
 .sw-board { min-width: 0; }
 .sw-board-head {
   display: flex; align-items: flex-end; justify-content: space-between;
@@ -100,7 +113,7 @@ export const CSS = `
 .sw-bar { height: 5px; background: rgba(250,250,252,0.1); margin-top: 6px; overflow: hidden; }
 .sw-bar-fill { height: 100%; background: var(--accent); transition: width 1.2s cubic-bezier(.2,.8,.2,1); }
 
-.sw-projects { display: grid; grid-template-columns: 1fr 1.2fr; gap: 48px; align-items: center; }
+.sw-projects-body { display: grid; grid-template-columns: 1fr 1.2fr; gap: 48px; align-items: center; flex: 1; }
 .sw-tally { text-align: center; }
 .sw-tally-number {
   font-family: 'Barlow', sans-serif; font-weight: 300;
@@ -208,12 +221,6 @@ export const CSS = `
 
 /* This Month at Smart */
 .sw-thismonth { position: relative; padding: 20px 36px 24px; }
-.sw-thismonth-head { margin-bottom: 18px; position: relative; z-index: 2; }
-.sw-thismonth-head h2 {
-  font-family: 'Barlow', sans-serif; font-weight: 300;
-  font-size: clamp(30px, 3.4vw, 48px); margin: 0; line-height: 1;
-  letter-spacing: 0.14em; text-transform: uppercase; color: #FFFFFF;
-}
 .sw-thismonth-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
   grid-template-areas: "b a" "n n"; position: relative; z-index: 2;
@@ -245,12 +252,7 @@ export const CSS = `
 
 /* Smart Zero funnel */
 .sw-zero { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 40px; align-items: center; }
-.sw-zero-head { grid-column: 1 / -1; margin-bottom: -20px; }
-.sw-zero-head h2 {
-  font-family: 'Barlow', sans-serif; font-weight: 300;
-  font-size: clamp(30px, 3.4vw, 48px); margin: 0; line-height: 1;
-  letter-spacing: 0.14em; text-transform: uppercase; color: #FFFFFF;
-}
+.sw-zero-head { grid-column: 1 / -1; margin-bottom: 4px; }
 .sw-zero-goal { text-align: center; }
 .sw-zero-goal-number {
   font-family: 'Barlow', sans-serif; font-weight: 300;
@@ -334,7 +336,7 @@ export const CSS = `
 @media (max-width: 860px) {
   .sw-zero { grid-template-columns: 1fr; }
   .sw-thismonth-grid { grid-template-columns: 1fr; grid-template-areas: "b" "a" "n"; }
-  .sw-two-col, .sw-projects { grid-template-columns: 1fr; }
+  .sw-two-col, .sw-projects-body { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sw-icon-spin, .sw-bar-fill, .sw-screen, .sw-zero-goal-fill, .sw-zero-bar-fill { animation: none; transition: none; }
