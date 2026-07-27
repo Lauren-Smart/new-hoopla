@@ -360,7 +360,7 @@ function GpScreen({ gp }) {
       <div className="sw-gp-inner">
         <div className="sw-board-eyebrow">Average gross margin · FYTD</div>
         <div className={`sw-gp-number ${onTarget ? "sw-gp-on" : "sw-gp-off"}`}>
-          {avgPercent.toFixed(1)}<span className="sw-gp-percent">%</span>
+          {(avgPercent * 100).toFixed(1)}<span className="sw-gp-percent">%</span>
         </div>
         <div className="sw-gp-target">
           Target <strong>{goalPercent}%</strong>
