@@ -7,7 +7,7 @@ import { CSS } from "./styles";
 
 const STATE_POLL_MS = 5000;      // check for new celebration events every 5 s
 const SYNC_MS = 2 * 60 * 1000;   // HubSpot safety-net sync every 2 min
-const SCREEN_ROTATE_MS = 7000;  // rotate screens every 7 s
+const SCREEN_ROTATE_MS = 10000;  // rotate screens every 20 s
 const CELEBRATION_MS = 14000;
 const BRAND_CONFETTI = ["#B91982", "#B41E1E", "#FA7855", "#FAB419", "#82E196", "#46C1BE", "#6EC8F5", "#FFFFFF"];
 
@@ -168,45 +168,219 @@ function ProjectsScreen({ deliveries }) {
   );
 }
 
-function AnnouncementsScreen({ announcements, deals, deliveries, ownerNameOf }) {
-  const hasCustom = announcements.length > 0;
+function AnnouncementsScreen() { return null; } // replaced by ThisMonthScreen (kept as safe stub)
+
+// Small decorative confetti flecks that DON'T animate — just a festive garnish.
+function ConfettiFlecks({ count = 14 }) {
+  const flecks = useRef(
+    Array.from({ length: count }, (_, i) => ({
+      id: i, x: Math.random() * 100, y: Math.random() * 100,
+      size: 5 + Math.random() * 8, tilt: Math.random() * 360,
+      color: BRAND_CONFETTI[i % BRAND_CONFETTI.length],
+      opacity: 0.35 + Math.random() * 0.45,
+    }))
+  );
   return (
-    <main className="sw-main sw-announce">
-      <div className="sw-announce-head">
-        <div className="sw-board-eyebrow">Announcements</div>
-        <h2>What&apos;s On</h2>
-      </div>
-      {hasCustom ? (
-        <ul className="sw-announce-list">
-          {announcements.slice(0, 6).map((a) => (
-            <li key={a.id}>
-              <span className="sw-announce-msg">{a.message}</span>
-              {a.date && <span className="sw-announce-date">{fmtDate(a.date)}</span>}
-            </li>
-          ))}
-        </ul>
+    <div className="sw-flecks" aria-hidden="true">
+      {flecks.current.map((f) => (
+        <span key={f.id} style={{
+          left: `${f.x}%`, top: `${f.y}%`,
+          width: f.size, height: f.size * 0.5,
+          background: f.color, transform: `rotate(${f.tilt}deg)`,
+          opacity: f.opacity,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// Tiny brand pinwheel used as a bullet on the This Month screen.
+function MiniPinwheel({ color = "#FAB419" }) {
+  return (
+    <svg viewBox="-50 -50 100 100" width={16} height={16} aria-hidden="true">
+      {[0,1,2,3,4,5,6,7].map((i) => (
+        <path key={i} d="M -8,-46 L 12,-41 L 8,-17 L -12,-22 Z"
+          fill={color} transform={`rotate(${i * 45})`} opacity={0.85} />
+      ))}
+    </svg>
+  );
+}
+
+function ThisMonthScreen({ birthdays, anniversaries, announcements }) {
+  const isEmpty = !birthdays.length && !anniversaries.length && !announcements.length;
+  return (
+    <main className="sw-main sw-thismonth">
+      <ConfettiFlecks />
+      <header className="sw-thismonth-head">
+        <div className="sw-board-eyebrow">Team news</div>
+        <h2>This Month at Smart</h2>
+      </header>
+
+      {isEmpty ? (
+        <p className="sw-empty">Nothing to report yet this month — post something at /admin.</p>
       ) : (
-        <div className="sw-announce-fallback">
-          <p className="sw-empty">No announcements posted. Latest wins across the business:</p>
-          <ul className="sw-announce-list">
-            {deals.slice(0, 4).map((d) => (
-              <li key={d.id}>
-                <span className="sw-announce-msg">{d.dealname} — {ownerNameOf(d.ownerId)}</span>
-                <span className="sw-announce-date">{fmtMoney(Number(d.amount) || 0)}</span>
-              </li>
-            ))}
-            {deliveries.slice(0, 2).map((d, i) => (
-              <li key={`del-${i}`}>
-                <span className="sw-announce-msg">Delivered: {d.project}</span>
-                <span className="sw-announce-date">{fmtDate(d.date)}</span>
-              </li>
-            ))}
-          </ul>
+        <div className="sw-thismonth-grid">
+          <section className="sw-tm-panel" style={{ "--accent": "#B91982" }}>
+            <div className="sw-tm-panel-head">
+              <MiniPinwheel color="#B91982" />
+              <h3>Birthdays</h3>
+            </div>
+            {birthdays.length === 0 ? (
+              <p className="sw-tm-empty">No birthdays this month.</p>
+            ) : (
+              <ul>
+                {birthdays.map((p, i) => (
+                  <li key={`b-${i}`} className={p.isToday ? "sw-today" : ""}>
+                    <span className="sw-tm-name">
+                      {p.name}
+                      {p.isToday && <em className="sw-today-tag">Today!</em>}
+                    </span>
+                    <span className="sw-tm-detail">
+                      {fmtDate(`2026-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="sw-tm-panel" style={{ "--accent": "#FA7855" }}>
+            <div className="sw-tm-panel-head">
+              <MiniPinwheel color="#FA7855" />
+              <h3>Anniversaries</h3>
+            </div>
+            {anniversaries.length === 0 ? (
+              <p className="sw-tm-empty">No anniversaries this month.</p>
+            ) : (
+              <ul>
+                {anniversaries.map((p, i) => (
+                  <li key={`a-${i}`} className={p.isToday ? "sw-today" : ""}>
+                    <span className="sw-tm-name">
+                      {p.name}
+                      {p.isToday && <em className="sw-today-tag">Today!</em>}
+                    </span>
+                    <span className="sw-tm-detail">{p.years} {p.years === 1 ? "year" : "years"}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="sw-tm-panel sw-tm-panel-wide" style={{ "--accent": "#6EC8F5" }}>
+            <div className="sw-tm-panel-head">
+              <MiniPinwheel color="#6EC8F5" />
+              <h3>Announcements</h3>
+            </div>
+            {announcements.length === 0 ? (
+              <p className="sw-tm-empty">No announcements posted.</p>
+            ) : (
+              <ul>
+                {announcements.slice(0, 5).map((a) => (
+                  <li key={a.id}>
+                    <span className="sw-tm-msg">{a.message}</span>
+                    {a.date && <span className="sw-tm-detail">{fmtDate(a.date)}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </div>
       )}
     </main>
   );
 }
+
+function SmartZeroScreen({ smartZero }) {
+  const { stages = [], sold = 0, goal = 250000 } = smartZero || {};
+  const pctToGoal = Math.min(100, (sold / goal) * 100);
+  const maxStageDollars = Math.max(...stages.map((s) => s.dollars), 1);
+  const totalInFunnel = stages.reduce((s, x) => s + x.dollars, 0);
+  const totalDeals = stages.reduce((s, x) => s + x.count, 0);
+
+  return (
+    <main className="sw-main sw-zero">
+      <header className="sw-zero-head">
+        <div className="sw-board-eyebrow">Pipeline</div>
+        <h2>Smart Zero</h2>
+      </header>
+      <div className="sw-zero-goal">
+        <div className="sw-board-eyebrow">Sold toward $250K</div>
+        <div className="sw-zero-goal-number">{fmtMoney(sold)}</div>
+        <div className="sw-zero-goal-of">of {fmtMoney(goal)}</div>
+        <div className="sw-zero-goal-bar">
+          <div className="sw-zero-goal-fill" style={{ width: `${pctToGoal}%` }} />
+        </div>
+        <div className="sw-zero-goal-pct">{pctToGoal.toFixed(0)}% of goal</div>
+        <div className="sw-zero-summary">
+          <div>
+            <span className="sw-zero-summary-n">{totalDeals}</span>
+            <span className="sw-zero-summary-l">deals in play</span>
+          </div>
+          <div>
+            <span className="sw-zero-summary-n">{fmtMoney(totalInFunnel)}</span>
+            <span className="sw-zero-summary-l">pipeline value</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="sw-zero-funnel">
+        <div className="sw-board-eyebrow">Pipeline stages</div>
+        <ul>
+          {stages.map((s, i) => {
+            const width = (s.dollars / maxStageDollars) * 100;
+            return (
+              <li key={s.id}>
+                <div className="sw-zero-stage-head">
+                  <span className="sw-zero-stage-name">{s.name}</span>
+                  <span className="sw-zero-stage-nums">
+                    {s.count} {s.count === 1 ? "deal" : "deals"} · {fmtMoney(s.dollars)}
+                  </span>
+                </div>
+                <div className="sw-zero-bar">
+                  <div className="sw-zero-bar-fill" style={{
+                    width: `${Math.max(width, s.dollars > 0 ? 4 : 0)}%`,
+                    opacity: 0.55 + (i * 0.15),
+                  }} />
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </main>
+  );
+}
+
+function GpScreen({ gp }) {
+  const { avgPercent = 0, goalPercent = 20, dealsCounted = 0, totalDollars = 0 } = gp || {};
+  const onTarget = avgPercent >= goalPercent;
+  const gap = avgPercent - goalPercent;
+  return (
+    <main className="sw-main sw-gp">
+      <div className="sw-gp-inner">
+        <div className="sw-board-eyebrow">Average gross margin · FYTD</div>
+        <div className={`sw-gp-number ${onTarget ? "sw-gp-on" : "sw-gp-off"}`}>
+          {avgPercent.toFixed(1)}<span className="sw-gp-percent">%</span>
+        </div>
+        <div className="sw-gp-target">
+          Target <strong>{goalPercent}%</strong>
+          {dealsCounted > 0 && (
+            <span className="sw-gp-gap">
+              {onTarget ? "▲" : "▼"} {Math.abs(gap).toFixed(1)} pts {onTarget ? "above" : "below"} target
+            </span>
+          )}
+        </div>
+        <div className="sw-gp-basis">
+          Weighted across {dealsCounted} closed-won {dealsCounted === 1 ? "deal" : "deals"}
+          {totalDollars > 0 && ` (${fmtMoney(totalDollars)})`}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+
+function CelebrantsScreen() { return null; } // replaced by ThisMonthScreen (kept as safe stub)
 
 function PhotosScreen({ photos, tick }) {
   if (!photos.length) return null;
@@ -220,55 +394,68 @@ function PhotosScreen({ photos, tick }) {
 }
 
 
-function CelebrantsScreen({ title, eyebrow, items, accent, unit }) {
-  return (
-    <main className="sw-main sw-announce">
-      <div className="sw-announce-head">
-        <div className="sw-board-eyebrow">{eyebrow}</div>
-        <h2>{title}</h2>
-      </div>
-      {items.length === 0 ? (
-        <p className="sw-empty">None this month.</p>
-      ) : (
-        <ul className="sw-celebrant-list" style={{ "--accent": accent }}>
-          {items.map((p, i) => (
-            <li key={`${p.name}-${i}`} className={p.isToday ? "sw-today" : ""}>
-              <span className="sw-celebrant-name">
-                {p.name}
-                {p.isToday && <em className="sw-today-tag">Today!</em>}
-              </span>
-              <span className="sw-celebrant-detail">
-                {fmtDate(`2026-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`)}
-                {unit === "years" && ` · ${p.years} ${p.years === 1 ? "year" : "years"}`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
-  );
-}
-
 // ── main ────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [state, setState] = useState({ deals: [], deliveries: [], announcements: [], photos: [], birthdays: [], anniversaries: [] });
+  const [state, setState] = useState({
+    deals: [], deliveries: [], announcements: [], photos: [],
+    birthdays: [], anniversaries: [],
+    smartZero: { stages: [], sold: 0, goal: 250000 },
+    gp: { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
+  });
   const [queue, setQueue] = useState([]);
   const [active, setActive] = useState(null);
   const [screen, setScreen] = useState(0);
   const [photoTick, setPhotoTick] = useState(0);
   const [status, setStatus] = useState("Connecting…");
   const [clock, setClock] = useState("");
+  const [soundOn, setSoundOn] = useState(false);
   const cursor = useRef(-1);
+  const audioRef = useRef(null);
+
+  // Remember the sound preference; browsers still need one click per
+  // session before audio is allowed, which the speaker button provides.
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem("wb-sound") === "on") {
+      setSoundOn(true);
+    }
+  }, []);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    localStorage.setItem("wb-sound", next ? "on" : "off");
+    if (next && audioRef.current) {
+      // The click itself unlocks audio — prime the element silently.
+      const a = audioRef.current;
+      a.volume = 0;
+      a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(() => {});
+    }
+  };
+
+  // Fanfare when a celebration takes the screen
+  useEffect(() => {
+    if (active && soundOn && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.volume = 1;
+      audioRef.current.play().catch(() => {});
+    }
+  }, [active, soundOn]);
 
   const ownerNameOf = useCallback(
     (id) => SALES_TEAM[id] || PERFORMANCE_TEAM[id] || "The team", []
   );
 
+  const hasThisMonth = state.birthdays.length || state.anniversaries.length || state.announcements.length;
+  const hasSmartZero = (state.smartZero?.stages || []).some((s) => s.count > 0);
+  const hasGp = (state.gp?.dealsCounted || 0) > 0;
+
   const screens = [
-    "sales", "projects", "announcements",
+    "sales",
+    ...(hasGp ? ["gp"] : []),
+    "projects",
+    ...(hasSmartZero ? ["smartzero"] : []),
+    ...(hasThisMonth ? ["thismonth"] : []),
     ...(state.photos.length ? ["photos"] : []),
-    ...(state.birthdays.length ? ["birthdays"] : []),
-    ...(state.anniversaries.length ? ["anniversaries"] : []),
   ];
   const current = screens[screen % screens.length];
 
@@ -280,6 +467,8 @@ export default function Dashboard() {
         deals: data.deals || [], deliveries: data.deliveries || [],
         announcements: data.announcements || [], photos: data.photos || [],
         birthdays: data.birthdays || [], anniversaries: data.anniversaries || [],
+        smartZero: data.smartZero || { stages: [], sold: 0, goal: 250000 },
+        gp: data.gp || { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
       });
       if (cursor.current >= 0 && data.events?.length) {
         setQueue((q) => [...q, ...data.events]);
@@ -321,7 +510,14 @@ export default function Dashboard() {
     }
   }, [queue, active]);
 
-  const tag = { sales: "Wins Board", projects: "Delivery Board", announcements: "Noticeboard", photos: "Gallery", birthdays: "Celebrations", anniversaries: "Milestones" }[current];
+  const tag = {
+    sales: "Wins Board",
+    gp: "Margin Watch",
+    projects: "Delivery Board",
+    smartzero: "Smart Zero Pipeline",
+    thismonth: "This Month at Smart",
+    photos: "Gallery",
+  }[current];
 
   return (
     <div className="sw-root">
@@ -340,25 +536,27 @@ export default function Dashboard() {
         <div className="sw-header-right">
           <span className="sw-status">{status}</span>
           <span className="sw-clock">{clock} AEST</span>
+          <button className="sw-sound" onClick={toggleSound}
+            title={soundOn ? "Sound on" : "Sound off"}>
+            {soundOn ? "\u{1F50A}" : "\u{1F507}"}
+          </button>
         </div>
       </header>
+      <audio ref={audioRef} src="/fanfare.mp3" preload="auto" />
 
       <div className="sw-screen" key={current + (current === "photos" ? photoTick : "")}>
         {current === "sales" && <SalesScreen deals={state.deals} />}
+        {current === "gp" && <GpScreen gp={state.gp} />}
         {current === "projects" && <ProjectsScreen deliveries={state.deliveries} />}
-        {current === "announcements" && (
-          <AnnouncementsScreen announcements={state.announcements} deals={state.deals}
-            deliveries={state.deliveries} ownerNameOf={ownerNameOf} />
+        {current === "smartzero" && <SmartZeroScreen smartZero={state.smartZero} />}
+        {current === "thismonth" && (
+          <ThisMonthScreen
+            birthdays={state.birthdays}
+            anniversaries={state.anniversaries}
+            announcements={state.announcements}
+          />
         )}
         {current === "photos" && <PhotosScreen photos={state.photos} tick={photoTick} />}
-        {current === "birthdays" && (
-          <CelebrantsScreen title="Happy Birthday" eyebrow="Birthdays this month"
-            items={state.birthdays} accent="#B91982" unit="date" />
-        )}
-        {current === "anniversaries" && (
-          <CelebrantsScreen title="Work Anniversaries" eyebrow="Milestones this month"
-            items={state.anniversaries} accent="#FA7855" unit="years" />
-        )}
       </div>
 
       <footer className="sw-footer">
