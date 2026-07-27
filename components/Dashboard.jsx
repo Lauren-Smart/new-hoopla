@@ -134,11 +134,17 @@ function SalesScreen({ deals }) {
   const salesRows = buildBoard(deals, SALES_TEAM);
   const perfRows = buildBoard(deals, PERFORMANCE_TEAM);
   return (
-    <main className="sw-main sw-two-col">
-      <Board title="Project Sales" subtitle="Solar · Storage · EV Projects"
-        rows={salesRows} accent="#FAB419" total={salesRows.reduce((s, r) => s + r.total, 0)} />
-      <Board title="Performance" subtitle="Service Contracts · Asset Care"
-        rows={perfRows} accent="#46C1BE" total={perfRows.reduce((s, r) => s + r.total, 0)} />
+    <main className="sw-main sw-sales">
+      <header className="sw-screen-head">
+        <div className="sw-board-eyebrow">Sales Leaderboards · FYTD</div>
+        <h2>The Wins Board</h2>
+      </header>
+      <div className="sw-two-col">
+        <Board title="Project Sales" subtitle="Solar · Storage · EV Projects"
+          rows={salesRows} accent="#FAB419" total={salesRows.reduce((s, r) => s + r.total, 0)} />
+        <Board title="Performance" subtitle="Service Contracts · Asset Care"
+          rows={perfRows} accent="#46C1BE" total={perfRows.reduce((s, r) => s + r.total, 0)} />
+      </div>
     </main>
   );
 }
@@ -147,22 +153,28 @@ function ProjectsScreen({ deliveries }) {
   const fytd = deliveries.filter((d) => !d.date || d.date >= FY_START);
   return (
     <main className="sw-main sw-projects">
-      <div className="sw-tally">
-        <div className="sw-board-eyebrow">Projects delivered · FYTD</div>
-        <div className="sw-tally-number">{fytd.length}</div>
-        <div className="sw-tally-sub">handed over to Performance</div>
-      </div>
-      <div className="sw-delivery-list">
-        <div className="sw-board-eyebrow">Most recent</div>
-        {fytd.length === 0 && <p className="sw-empty">The first delivery of the financial year is coming soon…</p>}
-        <ul>
-          {fytd.slice(0, 8).map((d, i) => (
-            <li key={`${d.project}-${i}`}>
-              <span className="sw-delivery-name">{d.project}</span>
-              <span className="sw-delivery-date">{fmtDate(d.date)}</span>
-            </li>
-          ))}
-        </ul>
+      <header className="sw-screen-head">
+        <div className="sw-board-eyebrow">Delivery</div>
+        <h2>Projects Delivered</h2>
+      </header>
+      <div className="sw-projects-body">
+        <div className="sw-tally">
+          <div className="sw-board-eyebrow">FYTD tally</div>
+          <div className="sw-tally-number">{fytd.length}</div>
+          <div className="sw-tally-sub">handed over to Performance</div>
+        </div>
+        <div className="sw-delivery-list">
+          <div className="sw-board-eyebrow">Most recent</div>
+          {fytd.length === 0 && <p className="sw-empty">The first delivery of the financial year is coming soon…</p>}
+          <ul>
+            {fytd.slice(0, 8).map((d, i) => (
+              <li key={`${d.project}-${i}`}>
+                <span className="sw-delivery-name">{d.project}</span>
+                <span className="sw-delivery-date">{fmtDate(d.date)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </main>
   );
@@ -211,7 +223,7 @@ function ThisMonthScreen({ birthdays, anniversaries, announcements }) {
   return (
     <main className="sw-main sw-thismonth">
       <ConfettiFlecks />
-      <header className="sw-thismonth-head">
+      <header className="sw-thismonth-head sw-screen-head">
         <div className="sw-board-eyebrow">Team news</div>
         <h2>This Month at Smart</h2>
       </header>
@@ -299,7 +311,7 @@ function SmartZeroScreen({ smartZero }) {
 
   return (
     <main className="sw-main sw-zero">
-      <header className="sw-zero-head">
+      <header className="sw-zero-head sw-screen-head">
         <div className="sw-board-eyebrow">Pipeline</div>
         <h2>Smart Zero</h2>
       </header>
@@ -353,14 +365,19 @@ function SmartZeroScreen({ smartZero }) {
 
 function GpScreen({ gp }) {
   const { avgPercent = 0, goalPercent = 20, dealsCounted = 0, totalDollars = 0 } = gp || {};
-  const onTarget = avgPercent >= goalPercent;
-  const gap = avgPercent - goalPercent;
+  const displayPercent = avgPercent * 100;
+  const onTarget = displayPercent >= goalPercent;
+  const gap = displayPercent - goalPercent;
   return (
     <main className="sw-main sw-gp">
+      <header className="sw-screen-head">
+        <div className="sw-board-eyebrow">Performance</div>
+        <h2>GP Margin Watch</h2>
+      </header>
       <div className="sw-gp-inner">
         <div className="sw-board-eyebrow">Average gross margin · FYTD</div>
         <div className={`sw-gp-number ${onTarget ? "sw-gp-on" : "sw-gp-off"}`}>
-          {avgPercent.toFixed(1)}<span className="sw-gp-percent">%</span>
+          {(avgPercent * 100).toFixed(1)}<span className="sw-gp-percent">%</span>
         </div>
         <div className="sw-gp-target">
           Target <strong>{goalPercent}%</strong>
