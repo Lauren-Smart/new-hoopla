@@ -427,7 +427,8 @@ export default function Dashboard() {
   const [clock, setClock] = useState("");
   const [soundOn, setSoundOn] = useState(false);
   const cursor = useRef(-1);
-  const audioRef = useRef(null);
+  const audioRef = useRef(null);          // fanfare — plays on deal celebrations
+  const deliveryAudioRef = useRef(null);  // separate sound for project deliveries
 
   // Remember the sound preference; browsers still need one click per
   // session before audio is allowed, which the speaker button provides.
@@ -441,21 +442,26 @@ export default function Dashboard() {
     const next = !soundOn;
     setSoundOn(next);
     localStorage.setItem("wb-sound", next ? "on" : "off");
-    if (next && audioRef.current) {
-      // The click itself unlocks audio — prime the element silently.
-      const a = audioRef.current;
-      a.volume = 0;
-      a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(() => {});
+    if (next) {
+      // The click itself unlocks audio for the whole page — prime both
+      // elements silently so either can play the moment its cue arrives.
+      [audioRef.current, deliveryAudioRef.current].forEach((a) => {
+        if (!a) return;
+        a.volume = 0;
+        a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(() => {});
+      });
     }
   };
 
-  // Fanfare when a celebration takes the screen
+  // Play the matching sound when a celebration takes the screen —
+  // fanfare (crowd cheer) for deal closes, delivery sound for project handovers.
   useEffect(() => {
-    if (active && soundOn && audioRef.current) {
-      audioRef.current.currentTime = 0;
-      audioRef.current.volume = 1;
-      audioRef.current.play().catch(() => {});
-    }
+    if (!active || !soundOn) return;
+    const a = active.kind === "delivery" ? deliveryAudioRef.current : audioRef.current;
+    if (!a) return;
+    a.currentTime = 0;
+    a.volume = 1;
+    a.play().catch(() => {});
   }, [active, soundOn]);
 
   const ownerNameOf = useCallback(
@@ -560,6 +566,7 @@ export default function Dashboard() {
         </div>
       </header>
       <audio ref={audioRef} src="/fanfare.mp3" preload="auto" />
+      <audio ref={deliveryAudioRef} src="/delivery.mp3" preload="auto" />
 
       <div className="sw-screen" key={current + (current === "photos" ? photoTick : "")}>
         {current === "sales" && <SalesScreen deals={state.deals} />}
