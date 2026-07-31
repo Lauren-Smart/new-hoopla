@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
-import { checkMailbox } from "../../../lib/mailwatch";
+import { syncDeals } from "../../../lib/hubspot";
+import { refreshPeopleIfStale } from "../../../lib/employmenthero";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Called by the TV every couple of minutes, alongside the HubSpot sync.
-// Also safe to hit manually while debugging — returns a small JSON summary.
+// Safety-net sync: the TV calls this every couple of minutes. Deals are
+// caught even if a webhook was missed; the Employment Hero people cache
+// refreshes at most once a day.
 export async function GET() {
   try {
-    const result = await checkMailbox();
+    const result = await syncDeals();
+    await refreshPeopleIfStale();
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
     return NextResponse.json({ ok: false, error: String(e.message || e) }, { status: 500 });
