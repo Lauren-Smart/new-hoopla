@@ -411,6 +411,86 @@ function PhotosScreen({ photos, tick }) {
 }
 
 
+// ── Marketing screens ───────────────────────────────────────
+function TrendArrow({ change, isPositiveBetter = true, isPercentPoints = false }) {
+  if (change == null) return null;
+  const up = change >= 0;
+  const good = up === isPositiveBetter;
+  const cls = `sw-mkt-trend ${good ? "sw-mkt-up" : "sw-mkt-down"}`;
+  const sign = up ? "▲" : "▼";
+  const magnitude = Math.abs(change);
+  const suffix = isPercentPoints ? "pts" : "%";
+  return <span className={cls}>{sign} {magnitude.toFixed(magnitude >= 100 ? 0 : 1)}{suffix}</span>;
+}
+
+function MktCard({ label, value, unit = "", change, isPositiveBetter = true, isPercentPoints = false }) {
+  const display = value == null
+    ? "—"
+    : unit === "%" ? `${Number(value).toFixed(1)}${unit}`
+    : typeof value === "number" ? Math.round(value).toLocaleString("en-AU")
+    : value;
+  return (
+    <div className="sw-mkt-card">
+      <div className="sw-mkt-label">{label}</div>
+      <div className="sw-mkt-value">{display}</div>
+      <TrendArrow change={change} isPositiveBetter={isPositiveBetter} isPercentPoints={isPercentPoints} />
+    </div>
+  );
+}
+
+function MarketingPulseScreen({ marketing }) {
+  const m = marketing || {};
+  return (
+    <main className="sw-main sw-mkt sw-mkt-pulse">
+      <header className="sw-screen-head">
+        <div className="sw-board-eyebrow">Last 30 days vs prior 30</div>
+        <h2>Marketing · The Pulse</h2>
+      </header>
+      <div className="sw-mkt-grid">
+        <MktCard label="Sessions" value={m.sessions?.value} change={m.sessions?.change} />
+        <MktCard label="New Contacts" value={m.newContacts?.value} change={m.newContacts?.change} />
+        <MktCard label="New Customers" value={m.customers?.value} change={m.customers?.change} />
+        <MktCard label="Social Interactions" value={m.socialInteractions?.value} change={m.socialInteractions?.change} />
+        <MktCard label="Conversion Rate" value={m.conversionRate?.value} unit="%" change={m.conversionRate?.change} isPercentPoints />
+        <MktCard label="Blog Views" value={m.blogViews?.value} change={m.blogViews?.change} />
+      </div>
+    </main>
+  );
+}
+
+function MarketingLeadsScreen({ marketing }) {
+  const m = marketing || {};
+  const sold = m.leads?.sold ?? 0;
+  const goal = m.leads?.goal ?? 7_000_000;
+  const pct = Math.min(100, (sold / goal) * 100);
+  const lp = m.landingPages || {};
+  return (
+    <main className="sw-main sw-mkt sw-mkt-leads">
+      <header className="sw-screen-head">
+        <div className="sw-board-eyebrow">FY27 Marketing Goal · Landing Pages</div>
+        <h2>Marketing · Leads &amp; Pipeline</h2>
+      </header>
+      <div className="sw-mkt-goal">
+        <div className="sw-board-eyebrow">Marketing-attributed pipeline · FYTD</div>
+        <div className="sw-mkt-goal-number">{fmtMoney(sold)}</div>
+        <div className="sw-mkt-goal-of">of {fmtMoney(goal)} FY27 goal</div>
+        <div className="sw-mkt-goal-bar">
+          <div className="sw-mkt-goal-fill" style={{ width: `${pct}%` }} />
+        </div>
+        <div className="sw-mkt-goal-pct">{pct.toFixed(1)}% of goal</div>
+      </div>
+      <div className="sw-mkt-lp">
+        <div className="sw-board-eyebrow">Landing pages · Last 30 days</div>
+        <div className="sw-mkt-lp-row">
+          <MktCard label="Views" value={lp.views} change={lp.viewsChange} />
+          <MktCard label="Submissions" value={lp.submissions} change={lp.submissionsChange} />
+          <MktCard label="Conversion Rate" value={lp.conversionRate} unit="%" change={lp.conversionChange} isPercentPoints />
+        </div>
+      </div>
+    </main>
+  );
+}
+
 // ── main ────────────────────────────────────────────────────
 export default function Dashboard() {
   const [state, setState] = useState({
@@ -418,6 +498,7 @@ export default function Dashboard() {
     birthdays: [], anniversaries: [],
     smartZero: { stages: [], sold: 0, goal: 250000 },
     gp: { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
+    marketing: null,
   });
   const [queue, setQueue] = useState([]);
   const [active, setActive] = useState(null);
@@ -471,12 +552,14 @@ export default function Dashboard() {
   const hasThisMonth = state.birthdays.length || state.anniversaries.length || state.announcements.length;
   const hasSmartZero = (state.smartZero?.stages || []).some((s) => s.count > 0);
   const hasGp = (state.gp?.dealsCounted || 0) > 0;
+  const hasMarketing = !!state.marketing;
 
   const screens = [
     "sales",
     ...(hasGp ? ["gp"] : []),
     "projects",
     ...(hasSmartZero ? ["smartzero"] : []),
+    ...(hasMarketing ? ["mktpulse", "mktleads"] : []),
     ...(hasThisMonth ? ["thismonth"] : []),
     ...(state.photos.length ? ["photos"] : []),
   ];
@@ -492,6 +575,7 @@ export default function Dashboard() {
         birthdays: data.birthdays || [], anniversaries: data.anniversaries || [],
         smartZero: data.smartZero || { stages: [], sold: 0, goal: 250000 },
         gp: data.gp || { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
+        marketing: data.marketing || null,
       });
       if (cursor.current >= 0 && data.events?.length) {
         setQueue((q) => [...q, ...data.events]);
@@ -538,6 +622,8 @@ export default function Dashboard() {
     gp: "Margin Watch",
     projects: "Delivery Board",
     smartzero: "Smart Zero Pipeline",
+    mktpulse: "Marketing Pulse",
+    mktleads: "Marketing Goals",
     thismonth: "This Month at Smart",
     photos: "Gallery",
   }[current];
@@ -573,6 +659,8 @@ export default function Dashboard() {
         {current === "gp" && <GpScreen gp={state.gp} />}
         {current === "projects" && <ProjectsScreen deliveries={state.deliveries} />}
         {current === "smartzero" && <SmartZeroScreen smartZero={state.smartZero} />}
+        {current === "mktpulse" && <MarketingPulseScreen marketing={state.marketing} />}
+        {current === "mktleads" && <MarketingLeadsScreen marketing={state.marketing} />}
         {current === "thismonth" && (
           <ThisMonthScreen
             birthdays={state.birthdays}
