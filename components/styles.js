@@ -337,7 +337,7 @@ export const CSS = `
 .sw-mkt { display: flex; flex-direction: column; }
 .sw-mkt-grid {
   flex: 1;
-  display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr);
+  display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr);
   gap: 20px 28px; padding-top: 8px;
 }
 .sw-mkt-card {
@@ -348,15 +348,20 @@ export const CSS = `
   display: flex; flex-direction: column; justify-content: center;
   min-height: 0;
 }
+.sw-mkt-card-soon { border-top-color: rgba(250,250,252,0.2); opacity: 0.55; }
 .sw-mkt-label {
   font-family: 'Overpass', sans-serif; font-weight: 800;
   font-size: 16px; letter-spacing: 0.26em; text-transform: uppercase;
   color: var(--sky); margin-bottom: 8px;
 }
+.sw-mkt-card-soon .sw-mkt-label { color: rgba(250,250,252,0.5); }
 .sw-mkt-value {
   font-family: 'Barlow', sans-serif; font-weight: 300;
   font-size: clamp(58px, 7vw, 110px); line-height: 1;
   letter-spacing: 0.02em; color: #FFFFFF; margin-bottom: 8px;
+}
+.sw-mkt-card-soon .sw-mkt-value {
+  font-size: clamp(26px, 2.6vw, 38px); color: rgba(250,250,252,0.6); text-transform: uppercase; letter-spacing: 0.06em;
 }
 .sw-mkt-trend {
   font-family: 'Overpass', sans-serif; font-weight: 800;
@@ -391,12 +396,17 @@ export const CSS = `
   font-size: 16px; letter-spacing: 0.24em; text-transform: uppercase;
   color: var(--sky);
 }
-.sw-mkt-lp { padding-top: 8px; }
+.sw-mkt-lp { padding-top: 8px; flex: 1; display: flex; flex-direction: column; }
 .sw-mkt-lp-row {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
-  margin-top: 14px;
+  margin-top: 14px; flex: 1;
 }
 .sw-mkt-lp-row .sw-mkt-card { border-top-color: var(--turquoise); }
+.sw-mkt-lp-row-single {
+  grid-template-columns: minmax(0, 420px);
+  justify-content: center;
+}
+.sw-mkt-lp-row-single .sw-mkt-value { font-size: clamp(48px, 5.5vw, 84px); }
 
 @media (max-width: 860px) {
   .sw-zero { grid-template-columns: 1fr; }
