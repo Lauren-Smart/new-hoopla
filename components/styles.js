@@ -1,691 +1,448 @@
-"use client";
-import { useState, useEffect, useRef, useCallback } from "react";
-import SmartIcon from "./SmartIcon";
-import { SALES_TEAM, PERFORMANCE_TEAM, FY_START } from "../lib/rosters";
-import { CSS } from "./styles";
-const STATE_POLL_MS = 5000;      // check for new celebration events every 5 s
-const SYNC_MS = 2 * 60 * 1000;   // HubSpot safety-net sync every 2 min
-const SCREEN_ROTATE_MS = 10000;  // rotate screens every 20 s
-const CELEBRATION_MS = 14000;
-const BRAND_CONFETTI = ["#B91982", "#B41E1E", "#FA7855", "#FAB419", "#82E196", "#46C1BE", "#6EC8F5", "#FFFFFF"];
-// Health status → dial colour + label (mirrors lib/employmenthero.js HEALTH_META,
-// duplicated here so the component has no server-only import).
-const HEALTH_META = {
-  on_track: { color: "#82E196", label: "On Track" },
-  making_progress: { color: "#FAB419", label: "Making Progress" },
-  off_track: { color: "#B41E1E", label: "Off Track" },
-};
-const HEALTH_FALLBACK = { color: "rgba(250,250,252,0.35)", label: "No Status" };
-// ── helpers ─────────────────────────────────────────────────
-function fmtMoney(n) {
-  if (n >= 1_000_000) return `A$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `A$${Math.round(n / 1_000)}K`;
-  return `A$${Math.round(n).toLocaleString()}`;
+// Brand Identity Guideline 2026:
+// Core: Deep Purple #463282, Indigo Blue #28066C, Sky Blue #6EC8F5,
+//       Lighter Sky Blue #9DD9F7, Ice Grey #FAFAFC
+// Accents: Magenta #B91982, Brick Red #B41E1E, Peach #FA7855,
+//          Golden Yellow #FAB419, Fresh Green #82E196, Turquoise #46C1BE
+// Gradient: linear Indigo -> Deep Purple (never radial)
+// Type: Barlow (headings, uppercase, tracked) / Overpass (body, eyebrows)
+export const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@300;400;500&family=Overpass:wght@400;600;800&display=swap');
+
+.sw-root {
+  --indigo: #28066C; --deep-purple: #463282;
+  --sky: #6EC8F5; --light-sky: #9DD9F7; --ice: #FAFAFC;
+  --gold: #FAB419; --turquoise: #46C1BE;
+  position: relative; min-height: 100vh;
+  background: linear-gradient(100deg, var(--indigo) 0%, var(--deep-purple) 100%);
+  color: var(--ice);
+  font-family: 'Overpass', system-ui, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
 }
-const fmtMoneyFull = (n) => `A$${Math.round(n).toLocaleString("en-AU")}`;
-function fmtDate(d) {
-  if (!d) return "";
-  try { return new Date(d + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }); }
-  catch { return d; }
+.sw-circle { position: absolute; border-radius: 50%; border: 1.5px solid rgba(110,200,245,0.35); pointer-events: none; }
+.sw-circle-a { width: 46vmax; height: 46vmax; left: -16vmax; top: -20vmax; }
+.sw-circle-b { width: 20vmax; height: 20vmax; right: -6vmax; bottom: -8vmax; border-color: rgba(157,217,247,0.22); }
+
+.sw-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 22px 72px 14px; border-bottom: 1px solid rgba(250,250,252,0.14);
+  position: relative; z-index: 2;
 }
-const sydneyTime = () =>
-  new Date().toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "2-digit", minute: "2-digit" });
-function buildBoard(deals, roster) {
-  const totals = {};
-  Object.keys(roster).forEach((id) => (totals[id] = { name: roster[id], total: 0, count: 0 }));
-  deals.forEach((d) => {
-    if (roster[d.ownerId]) {
-      totals[d.ownerId].total += Number(d.amount) || 0;
-      totals[d.ownerId].count += 1;
-    }
-  });
-  return Object.values(totals).sort((a, b) => b.total - a.total);
+.sw-brand { display: flex; align-items: center; gap: 16px; }
+.sw-logo-word {
+  display: block; font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: 28px; letter-spacing: 0.22em; line-height: 1.15;
+  text-transform: uppercase; color: #FFFFFF;
 }
-// ── celebration bits ────────────────────────────────────────
-function Confetti() {
-  const pieces = useRef(
-    Array.from({ length: 130 }, (_, i) => ({
-      id: i, left: Math.random() * 100, delay: Math.random() * 2.2,
-      duration: 3.2 + Math.random() * 2.6, size: 7 + Math.random() * 9,
-      color: BRAND_CONFETTI[i % BRAND_CONFETTI.length],
-      tilt: Math.random() * 360, drift: (Math.random() - 0.5) * 180,
-    }))
-  );
-  return (
-    <div style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
-      {pieces.current.map((p) => (
-        <span key={p.id} style={{
-          position: "absolute", top: "-4%", left: `${p.left}%`,
-          width: p.size, height: p.size * 0.5, background: p.color,
-          transform: `rotate(${p.tilt}deg)`,
-          animation: `sw-fall ${p.duration}s linear ${p.delay}s infinite`,
-          "--drift": `${p.drift}px`,
-        }} />
-      ))}
-    </div>
-  );
+.sw-logo-tag {
+  display: block; font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 14px; letter-spacing: 0.28em; text-transform: uppercase;
+  color: var(--sky); margin-top: 4px;
 }
-function Celebration({ event, onDone }) {
-  useEffect(() => {
-    const t = setTimeout(onDone, CELEBRATION_MS);
-    return () => clearTimeout(t);
-  }, [event, onDone]);
-  const isDeal = event.kind === "deal";
-  return (
-    <div className="sw-celebration">
-      <Confetti />
-      <div className="sw-celebration-inner">
-        <div className="sw-celebration-icon"><SmartIcon size={110} mono spin /></div>
-        {isDeal ? (
-          <>
-            <div className="sw-eyebrow">{event.team === "performance" ? "Service contract won" : "Project sold"}</div>
-            <h1 className="sw-headline">Deal Closed</h1>
-            <p className="sw-dealname">{event.dealname}</p>
-            <div className="sw-amount">{fmtMoneyFull(event.amount)}</div>
-            <p className="sw-credit">Congratulations <strong>{event.owner}</strong></p>
-          </>
-        ) : (
-          <>
-            <div className="sw-eyebrow">Project delivered</div>
-            <h1 className="sw-headline">Great News</h1>
-            <p className="sw-delivery-msg">
-              <strong>{event.project}</strong> has now been completed and handed over to
-              Performance. Well done to the team on delivering another successful project!
-            </p>
-          </>
-        )}
-      </div>
-    </div>
-  );
+.sw-header-right { display: flex; align-items: center; gap: 18px; }
+.sw-status { font-size: 15px; color: rgba(250,250,252,0.55); }
+.sw-clock { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: 24px; letter-spacing: 0.12em; }
+
+.sw-sound {
+  background: none; border: 1px solid rgba(250,250,252,0.2); color: rgba(250,250,252,0.7);
+  border-radius: 8px; width: 32px; height: 32px; cursor: pointer; font-size: 14px; line-height: 1;
 }
-// ── screens ─────────────────────────────────────────────────
-function Board({ title, subtitle, rows, accent, total }) {
-  const max = Math.max(...rows.map((r) => r.total), 1);
-  return (
-    <section className="sw-board" style={{ "--accent": accent }}>
-      <header className="sw-board-head">
-        <div>
-          <div className="sw-board-eyebrow">{subtitle}</div>
-          <h2>{title}</h2>
-        </div>
-        <div className="sw-board-total"><span>{fmtMoney(total)}</span><small>FYTD</small></div>
-      </header>
-      <ol className="sw-rows">
-        {rows.map((r, i) => (
-          <li key={r.name} className="sw-row">
-            <span className={`sw-rank ${i === 0 && r.total > 0 ? "sw-rank-top" : ""}`}>{i + 1}</span>
-            <div className="sw-row-body">
-              <div className="sw-row-line">
-                <span className="sw-name">{r.name}</span>
-                <span className="sw-val">
-                  {r.total > 0 ? fmtMoney(r.total) : "—"}
-                  {r.count > 0 && <em> · {r.count} {r.count === 1 ? "win" : "wins"}</em>}
-                </span>
-              </div>
-              <div className="sw-bar"><div className="sw-bar-fill" style={{ width: `${(r.total / max) * 100}%` }} /></div>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
+.sw-sound:hover { color: #FAFAFC; }
+
+.sw-screen { flex: 1; display: flex; flex-direction: column; animation: sw-screenin 0.7s ease; position: relative; z-index: 2; }
+@keyframes sw-screenin { from { opacity: 0; transform: translateX(28px); } }
+
+.sw-main { flex: 1; padding: 32px 72px 16px; align-content: start; }
+.sw-two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+
+/* Consistent big screen heading across all screens */
+.sw-screen-head {
+  margin-bottom: 22px; position: relative; z-index: 2;
 }
-function SalesScreen({ deals }) {
-  const salesRows = buildBoard(deals, SALES_TEAM);
-  const perfRows = buildBoard(deals, PERFORMANCE_TEAM);
-  return (
-    <main className="sw-main sw-sales">
-      <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">Sales Leaderboards · FYTD</div>
-        <h2>The Wins Board</h2>
-      </header>
-      <div className="sw-two-col">
-        <Board title="Project Sales" subtitle="Solar · Storage · EV Projects"
-          rows={salesRows} accent="#FAB419" total={salesRows.reduce((s, r) => s + r.total, 0)} />
-        <Board title="Performance" subtitle="Service Contracts · Asset Care"
-          rows={perfRows} accent="#46C1BE" total={perfRows.reduce((s, r) => s + r.total, 0)} />
-      </div>
-    </main>
-  );
+.sw-screen-head .sw-board-eyebrow { margin-bottom: 8px; color: var(--sky); }
+.sw-screen-head h2 {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(48px, 5.5vw, 78px); margin: 0; line-height: 1;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #FFFFFF;
 }
-function ProjectsScreen({ deliveries }) {
-  const fytd = deliveries.filter((d) => !d.date || d.date >= FY_START);
-  return (
-    <main className="sw-main sw-projects">
-      <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">Delivery</div>
-        <h2>Projects Delivered</h2>
-      </header>
-      <div className="sw-projects-body">
-        <div className="sw-tally">
-          <div className="sw-board-eyebrow">FYTD tally</div>
-          <div className="sw-tally-number">{fytd.length}</div>
-          <div className="sw-tally-sub">handed over to Performance</div>
-        </div>
-        <div className="sw-delivery-list">
-          <div className="sw-board-eyebrow">Most recent</div>
-          {fytd.length === 0 && <p className="sw-empty">The first delivery of the financial year is coming soon…</p>}
-          <ul>
-            {fytd.slice(0, 8).map((d, i) => (
-              <li key={`${d.project}-${i}`}>
-                <span className="sw-delivery-name">{d.project}</span>
-                <span className="sw-delivery-date">{fmtDate(d.date)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-    </main>
-  );
+.sw-sales, .sw-projects, .sw-gp { display: flex; flex-direction: column; }
+.sw-sales .sw-two-col { flex: 1; }
+
+.sw-board { min-width: 0; }
+.sw-board-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  padding-bottom: 12px; margin-bottom: 14px; border-bottom: 2px solid var(--accent);
 }
-function AnnouncementsScreen() { return null; } // replaced by ThisMonthScreen (kept as safe stub)
-// Small decorative confetti flecks that DON'T animate — just a festive garnish.
-function ConfettiFlecks({ count = 14 }) {
-  const flecks = useRef(
-    Array.from({ length: count }, (_, i) => ({
-      id: i, x: Math.random() * 100, y: Math.random() * 100,
-      size: 5 + Math.random() * 8, tilt: Math.random() * 360,
-      color: BRAND_CONFETTI[i % BRAND_CONFETTI.length],
-      opacity: 0.35 + Math.random() * 0.45,
-    }))
-  );
-  return (
-    <div className="sw-flecks" aria-hidden="true">
-      {flecks.current.map((f) => (
-        <span key={f.id} style={{
-          left: `${f.x}%`, top: `${f.y}%`,
-          width: f.size, height: f.size * 0.5,
-          background: f.color, transform: `rotate(${f.tilt}deg)`,
-          opacity: f.opacity,
-        }} />
-      ))}
-    </div>
-  );
+.sw-board-eyebrow {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 16px; letter-spacing: 0.26em; text-transform: uppercase;
+  color: var(--sky); margin-bottom: 6px;
 }
-// Tiny brand pinwheel used as a bullet on the This Month screen.
-function MiniPinwheel({ color = "#FAB419" }) {
-  return (
-    <svg viewBox="-50 -50 100 100" width={16} height={16} aria-hidden="true">
-      {[0,1,2,3,4,5,6,7].map((i) => (
-        <path key={i} d="M -8,-46 L 12,-41 L 8,-17 L -12,-22 Z"
-          fill={color} transform={`rotate(${i * 45})`} opacity={0.85} />
-      ))}
-    </svg>
-  );
+.sw-board-head h2 {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(32px, 3.4vw, 52px); margin: 0; line-height: 1;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #FFFFFF;
 }
-function ThisMonthScreen({ birthdays, anniversaries, announcements }) {
-  const isEmpty = !birthdays.length && !anniversaries.length && !announcements.length;
-  return (
-    <main className="sw-main sw-thismonth">
-      <ConfettiFlecks />
-      <header className="sw-thismonth-head sw-screen-head">
-        <div className="sw-board-eyebrow">Team news</div>
-        <h2>This Month at Smart</h2>
-      </header>
-      {isEmpty ? (
-        <p className="sw-empty">Nothing to report yet this month — post something at /admin.</p>
-      ) : (
-        <div className="sw-thismonth-grid">
-          <section className="sw-tm-panel" style={{ "--accent": "#B91982" }}>
-            <div className="sw-tm-panel-head">
-              <MiniPinwheel color="#B91982" />
-              <h3>Birthdays</h3>
-            </div>
-            {birthdays.length === 0 ? (
-              <p className="sw-tm-empty">No birthdays this month.</p>
-            ) : (
-              <ul>
-                {birthdays.map((p, i) => (
-                  <li key={`b-${i}`} className={p.isToday ? "sw-today" : ""}>
-                    <span className="sw-tm-name">
-                      {p.name}
-                      {p.isToday && <em className="sw-today-tag">Today!</em>}
-                    </span>
-                    <span className="sw-tm-detail">
-                      {fmtDate(`2026-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-          <section className="sw-tm-panel" style={{ "--accent": "#FA7855" }}>
-            <div className="sw-tm-panel-head">
-              <MiniPinwheel color="#FA7855" />
-              <h3>Anniversaries</h3>
-            </div>
-            {anniversaries.length === 0 ? (
-              <p className="sw-tm-empty">No anniversaries this month.</p>
-            ) : (
-              <ul>
-                {anniversaries.map((p, i) => (
-                  <li key={`a-${i}`} className={p.isToday ? "sw-today" : ""}>
-                    <span className="sw-tm-name">
-                      {p.name}
-                      {p.isToday && <em className="sw-today-tag">Today!</em>}
-                    </span>
-                    <span className="sw-tm-detail">{p.years} {p.years === 1 ? "year" : "years"}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-          <section className="sw-tm-panel sw-tm-panel-wide" style={{ "--accent": "#6EC8F5" }}>
-            <div className="sw-tm-panel-head">
-              <MiniPinwheel color="#6EC8F5" />
-              <h3>Announcements</h3>
-            </div>
-            {announcements.length === 0 ? (
-              <p className="sw-tm-empty">No announcements posted.</p>
-            ) : (
-              <ul>
-                {announcements.slice(0, 5).map((a) => (
-                  <li key={a.id}>
-                    <span className="sw-tm-msg">{a.message}</span>
-                    {a.date && <span className="sw-tm-detail">{fmtDate(a.date)}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
-      )}
-    </main>
-  );
+.sw-board-total { text-align: right; }
+.sw-board-total span {
+  font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(28px, 2.8vw, 42px);
+  display: block; line-height: 1; letter-spacing: 0.04em; color: var(--accent);
 }
-function SmartZeroScreen({ smartZero }) {
-  const { stages = [], sold = 0, goal = 250000 } = smartZero || {};
-  const pctToGoal = Math.min(100, (sold / goal) * 100);
-  const maxStageDollars = Math.max(...stages.map((s) => s.dollars), 1);
-  const totalInFunnel = stages.reduce((s, x) => s + x.dollars, 0);
-  const totalDeals = stages.reduce((s, x) => s + x.count, 0);
-  return (
-    <main className="sw-main sw-zero">
-      <header className="sw-zero-head sw-screen-head">
-        <div className="sw-board-eyebrow">Pipeline</div>
-        <h2>Smart Zero</h2>
-      </header>
-      <div className="sw-zero-goal">
-        <div className="sw-board-eyebrow">Sold toward $250K</div>
-        <div className="sw-zero-goal-number">{fmtMoney(sold)}</div>
-        <div className="sw-zero-goal-of">of {fmtMoney(goal)}</div>
-        <div className="sw-zero-goal-bar">
-          <div className="sw-zero-goal-fill" style={{ width: `${pctToGoal}%` }} />
-        </div>
-        <div className="sw-zero-goal-pct">{pctToGoal.toFixed(0)}% of goal</div>
-        <div className="sw-zero-summary">
-          <div>
-            <span className="sw-zero-summary-n">{totalDeals}</span>
-            <span className="sw-zero-summary-l">deals in play</span>
-          </div>
-          <div>
-            <span className="sw-zero-summary-n">{fmtMoney(totalInFunnel)}</span>
-            <span className="sw-zero-summary-l">pipeline value</span>
-          </div>
-        </div>
-      </div>
-      <div className="sw-zero-funnel">
-        <div className="sw-board-eyebrow">Pipeline stages</div>
-        <ul>
-          {stages.map((s, i) => {
-            const width = (s.dollars / maxStageDollars) * 100;
-            return (
-              <li key={s.id}>
-                <div className="sw-zero-stage-head">
-                  <span className="sw-zero-stage-name">{s.name}</span>
-                  <span className="sw-zero-stage-nums">
-                    {s.count} {s.count === 1 ? "deal" : "deals"} · {fmtMoney(s.dollars)}
-                  </span>
-                </div>
-                <div className="sw-zero-bar">
-                  <div className="sw-zero-bar-fill" style={{
-                    width: `${Math.max(width, s.dollars > 0 ? 4 : 0)}%`,
-                    opacity: 0.55 + (i * 0.15),
-                  }} />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </main>
-  );
+.sw-board-total small {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 14px; letter-spacing: 0.26em; color: rgba(250,250,252,0.5);
 }
-function GpScreen({ gp }) {
-  const { avgPercent = 0, goalPercent = 20, dealsCounted = 0, totalDollars = 0 } = gp || {};
-  const displayPercent = avgPercent * 100;
-  const onTarget = displayPercent >= goalPercent;
-  const gap = displayPercent - goalPercent;
-  return (
-    <main className="sw-main sw-gp">
-      <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">Performance</div>
-        <h2>GP Margin Watch</h2>
-      </header>
-      <div className="sw-gp-inner">
-        <div className="sw-board-eyebrow">Average gross margin · FYTD</div>
-        <div className={`sw-gp-number ${onTarget ? "sw-gp-on" : "sw-gp-off"}`}>
-          {(avgPercent * 100).toFixed(1)}<span className="sw-gp-percent">%</span>
-        </div>
-        <div className="sw-gp-target">
-          Target <strong>{goalPercent}%</strong>
-          {dealsCounted > 0 && (
-            <span className="sw-gp-gap">
-              {onTarget ? "▲" : "▼"} {Math.abs(gap).toFixed(1)} pts {onTarget ? "above" : "below"} target
-            </span>
-          )}
-        </div>
-        <div className="sw-gp-basis">
-          Weighted across {dealsCounted} closed-won {dealsCounted === 1 ? "deal" : "deals"}
-          {totalDollars > 0 && ` (${fmtMoney(totalDollars)})`}
-        </div>
-      </div>
-    </main>
-  );
+.sw-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.sw-row { display: flex; gap: 16px; align-items: center; }
+.sw-rank {
+  font-family: 'Overpass', sans-serif; font-weight: 800; font-size: 20px;
+  width: 44px; height: 44px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(250,250,252,0.25); color: rgba(250,250,252,0.6);
+  flex-shrink: 0; padding-top: 2px;
 }
-// Semicircular gauge for a single team's OKR progress. Drawn as an SVG arc —
-// a dim full arc behind, a coloured arc in front whose length is the
-// progress percentage of a half-circle.
-function Dial({ progress, color }) {
-  const r = 80, cx = 100, cy = 100;
-  const len = Math.PI * r;
-  const pct = Math.max(0, Math.min(100, progress));
-  const d = `M ${cx - r},${cy} A ${r},${r} 0 0 1 ${cx + r},${cy}`;
-  return (
-    <svg viewBox="0 0 200 108" className="sw-okr-dial-svg">
-      <path d={d} fill="none" stroke="rgba(250,250,252,0.12)" strokeWidth="16" strokeLinecap="round" />
-      <path d={d} fill="none" stroke={color} strokeWidth="16" strokeLinecap="round"
-        strokeDasharray={`${(pct / 100) * len} ${len}`} />
-    </svg>
-  );
+.sw-rank-top { background: var(--accent); color: var(--indigo); border-color: var(--accent); }
+.sw-row-body { flex: 1; min-width: 0; }
+.sw-row-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.sw-name {
+  font-family: 'Barlow', sans-serif; font-weight: 400;
+  font-size: clamp(22px, 2.2vw, 30px); letter-spacing: 0.03em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-function OkrScreen({ okrs }) {
-  const list = okrs || [];
-  return (
-    <main className="sw-main sw-okr">
-      <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">Employment Hero · Live</div>
-        <h2>Team OKRs</h2>
-      </header>
-      {list.length === 0 ? (
-        <p className="sw-empty">No active team OKRs found yet.</p>
-      ) : (
-        <div className="sw-okr-grid">
-          {list.map((t) => {
-            const meta = HEALTH_META[t.healthStatus] || HEALTH_FALLBACK;
-            return (
-              <div key={t.teamName} className="sw-okr-card" style={{ "--accent": meta.color }}>
-                <Dial progress={t.avgProgress} color={meta.color} />
-                <div className="sw-okr-pct" style={{ color: meta.color }}>{t.avgProgress}%</div>
-                <div className="sw-okr-name">{t.teamName}</div>
-                <div className="sw-okr-badge" style={{ color: meta.color }}>{meta.label}</div>
-                <div className="sw-okr-goals">{t.goalCount} {t.goalCount === 1 ? "goal" : "goals"}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </main>
-  );
+.sw-val { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(20px, 2vw, 28px); white-space: nowrap; letter-spacing: 0.03em; }
+.sw-val em { font-style: normal; font-family: 'Overpass', sans-serif; font-weight: 400; font-size: 0.65em; color: rgba(250,250,252,0.55); }
+.sw-bar { height: 6px; background: rgba(250,250,252,0.1); margin-top: 8px; overflow: hidden; }
+.sw-bar-fill { height: 100%; background: var(--accent); transition: width 1.2s cubic-bezier(.2,.8,.2,1); }
+
+.sw-projects-body { display: grid; grid-template-columns: 1fr 1.2fr; gap: 48px; align-items: center; flex: 1; }
+.sw-tally { text-align: center; }
+.sw-tally-number {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(120px, 22vw, 300px); line-height: 1; color: #FFFFFF; letter-spacing: 0.02em;
 }
-function CelebrantsScreen() { return null; } // replaced by ThisMonthScreen (kept as safe stub)
-function PhotosScreen({ photos, tick }) {
-  if (!photos.length) return null;
-  const photo = photos[tick % photos.length];
-  return (
-    <main className="sw-main sw-photos">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={photo.url} alt="" className="sw-photo" />
-    </main>
-  );
+.sw-tally-sub { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(22px, 2.2vw, 32px); color: var(--light-sky); letter-spacing: 0.06em; }
+.sw-delivery-list ul { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.sw-delivery-list li {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 20px;
+  border-bottom: 1px solid rgba(250,250,252,0.12); padding-bottom: 12px;
 }
-// ── Marketing screens ───────────────────────────────────────
-function TrendArrow({ change, isPositiveBetter = true, isPercentPoints = false }) {
-  if (change == null) return null;
-  const up = change >= 0;
-  const good = up === isPositiveBetter;
-  const cls = `sw-mkt-trend ${good ? "sw-mkt-up" : "sw-mkt-down"}`;
-  const sign = up ? "▲" : "▼";
-  const magnitude = Math.abs(change);
-  const suffix = isPercentPoints ? "pts" : "%";
-  return <span className={cls}>{sign} {magnitude.toFixed(magnitude >= 100 ? 0 : 1)}{suffix}</span>;
+.sw-delivery-name {
+  font-family: 'Barlow', sans-serif; font-weight: 400;
+  font-size: clamp(22px, 2.2vw, 30px); letter-spacing: 0.02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-function MktCard({ label, value, unit = "", change, isPositiveBetter = true, isPercentPoints = false }) {
-  const display = value == null
-    ? "—"
-    : unit === "%" ? `${Number(value).toFixed(1)}${unit}`
-    : typeof value === "number" ? Math.round(value).toLocaleString("en-AU")
-    : value;
-  return (
-    <div className="sw-mkt-card">
-      <div className="sw-mkt-label">{label}</div>
-      <div className="sw-mkt-value">{display}</div>
-      <TrendArrow change={change} isPositiveBetter={isPositiveBetter} isPercentPoints={isPercentPoints} />
-    </div>
-  );
+.sw-delivery-date { font-family: 'Overpass', sans-serif; font-weight: 600; font-size: 18px; color: var(--turquoise); flex-shrink: 0; }
+.sw-empty { color: rgba(250,250,252,0.7); font-size: 20px; }
+
+.sw-announce { max-width: 1100px; }
+.sw-announce-head h2 {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(34px, 4vw, 56px); margin: 0 0 26px; line-height: 1;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #FFFFFF;
 }
-function MarketingPulseScreen({ marketing }) {
-  const m = marketing || {};
-  return (
-    <main className="sw-main sw-mkt sw-mkt-pulse">
-      <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">Last 30 days vs prior 30</div>
-        <h2>Marketing · The Pulse</h2>
-      </header>
-      <div className="sw-mkt-grid">
-        <MktCard label="Sessions" value={m.sessions?.value} change={m.sessions?.change} />
-        <MktCard label="New Contacts" value={m.newContacts?.value} change={m.newContacts?.change} />
-        <MktCard label="New Customers" value={m.customers?.value} change={m.customers?.change} />
-        <MktCard label="Social Interactions" value={m.socialInteractions?.value} change={m.socialInteractions?.change} />
-        <MktCard label="Conversion Rate" value={m.conversionRate?.value} unit="%" change={m.conversionRate?.change} isPercentPoints />
-        <MktCard label="Blog Views" value={m.blogViews?.value} change={m.blogViews?.change} />
-      </div>
-    </main>
-  );
+.sw-announce-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.sw-announce-list li {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 20px;
+  background: rgba(250,250,252,0.05); border-left: 3px solid var(--sky);
+  padding: 16px 20px; border-radius: 0 10px 10px 0;
 }
-function MarketingLeadsScreen({ marketing }) {
-  const m = marketing || {};
-  const sold = m.leads?.sold ?? 0;
-  const goal = m.leads?.goal ?? 7_000_000;
-  const pct = Math.min(100, (sold / goal) * 100);
-  const lp = m.landingPages || {};
-  return (
-    <main className="sw-main sw-mkt sw-mkt-leads">
-      <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">FY27 Marketing Goal · Landing Pages</div>
-        <h2>Marketing · Leads &amp; Pipeline</h2>
-      </header>
-      <div className="sw-mkt-goal">
-        <div className="sw-board-eyebrow">Marketing-attributed pipeline · FYTD</div>
-        <div className="sw-mkt-goal-number">{fmtMoney(sold)}</div>
-        <div className="sw-mkt-goal-of">of {fmtMoney(goal)} FY27 goal</div>
-        <div className="sw-mkt-goal-bar">
-          <div className="sw-mkt-goal-fill" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="sw-mkt-goal-pct">{pct.toFixed(1)}% of goal</div>
-      </div>
-      <div className="sw-mkt-lp">
-        <div className="sw-board-eyebrow">Landing pages · Last 30 days</div>
-        <div className="sw-mkt-lp-row">
-          <MktCard label="Views" value={lp.views} change={lp.viewsChange} />
-          <MktCard label="Submissions" value={lp.submissions} change={lp.submissionsChange} />
-          <MktCard label="Conversion Rate" value={lp.conversionRate} unit="%" change={lp.conversionChange} isPercentPoints />
-        </div>
-      </div>
-    </main>
-  );
+.sw-announce-msg { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(17px, 1.9vw, 26px); letter-spacing: 0.02em; }
+.sw-announce-date { font-family: 'Overpass', sans-serif; font-weight: 600; font-size: 14px; color: var(--light-sky); flex-shrink: 0; }
+.sw-announce-fallback { display: flex; flex-direction: column; gap: 14px; }
+
+.sw-photos { display: flex; align-items: center; justify-content: center; padding: 16px 36px; }
+.sw-photo {
+  max-width: 100%; max-height: calc(100vh - 190px);
+  border-radius: 14px; box-shadow: 0 24px 70px rgba(20,4,60,0.5);
+  object-fit: contain;
 }
-// ── main ────────────────────────────────────────────────────
-export default function Dashboard() {
-  const [state, setState] = useState({
-    deals: [], deliveries: [], announcements: [], photos: [],
-    birthdays: [], anniversaries: [],
-    smartZero: { stages: [], sold: 0, goal: 250000 },
-    gp: { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
-    marketing: null,
-    okrs: [],
-  });
-  const [queue, setQueue] = useState([]);
-  const [active, setActive] = useState(null);
-  const [screen, setScreen] = useState(0);
-  const [photoTick, setPhotoTick] = useState(0);
-  const [status, setStatus] = useState("Connecting…");
-  const [clock, setClock] = useState("");
-  const [soundOn, setSoundOn] = useState(false);
-  const cursor = useRef(-1);
-  const audioRef = useRef(null);          // fanfare — plays on deal celebrations
-  const deliveryAudioRef = useRef(null);  // separate sound for project deliveries
-  useEffect(() => {
-    if (typeof window !== "undefined" && localStorage.getItem("wb-sound") === "on") {
-      setSoundOn(true);
-    }
-  }, []);
-  const toggleSound = () => {
-    const next = !soundOn;
-    setSoundOn(next);
-    localStorage.setItem("wb-sound", next ? "on" : "off");
-    if (next) {
-      [audioRef.current, deliveryAudioRef.current].forEach((a) => {
-        if (!a) return;
-        a.volume = 0;
-        a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(() => {});
-      });
-    }
-  };
-  useEffect(() => {
-    if (!active || !soundOn) return;
-    const a = active.kind === "delivery" ? deliveryAudioRef.current : audioRef.current;
-    if (!a) return;
-    a.currentTime = 0;
-    a.volume = 1;
-    a.play().catch(() => {});
-  }, [active, soundOn]);
-  const ownerNameOf = useCallback(
-    (id) => SALES_TEAM[id] || PERFORMANCE_TEAM[id] || "The team", []
-  );
-  const hasThisMonth = state.birthdays.length || state.anniversaries.length || state.announcements.length;
-  const hasSmartZero = (state.smartZero?.stages || []).some((s) => s.count > 0);
-  const hasGp = (state.gp?.dealsCounted || 0) > 0;
-  const hasMarketing = !!state.marketing;
-  const hasOkrs = (state.okrs || []).length > 0;
-  const screens = [
-    "sales",
-    ...(hasGp ? ["gp"] : []),
-    ...(hasOkrs ? ["okrs"] : []),
-    "projects",
-    ...(hasSmartZero ? ["smartzero"] : []),
-    ...(hasMarketing ? ["mktpulse", "mktleads"] : []),
-    ...(hasThisMonth ? ["thismonth"] : []),
-    ...(state.photos.length ? ["photos"] : []),
-  ];
-  const current = screens[screen % screens.length];
-  const pollState = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/state?since=${cursor.current}`, { cache: "no-store" });
-      const data = await res.json();
-      setState({
-        deals: data.deals || [], deliveries: data.deliveries || [],
-        announcements: data.announcements || [], photos: data.photos || [],
-        birthdays: data.birthdays || [], anniversaries: data.anniversaries || [],
-        smartZero: data.smartZero || { stages: [], sold: 0, goal: 250000 },
-        gp: data.gp || { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
-        marketing: data.marketing || null,
-        okrs: data.okrs || [],
-      });
-      if (cursor.current >= 0 && data.events?.length) {
-        setQueue((q) => [...q, ...data.events]);
-      }
-      cursor.current = data.latestEventId ?? cursor.current;
-      setStatus(`Live · updated ${sydneyTime()}`);
-    } catch {
-      setStatus("Connection hiccup — retrying…");
-    }
-  }, []);
-  const sync = useCallback(() => { fetch("/api/sync", { cache: "no-store" }).catch(() => {}); }, []);
-  useEffect(() => {
-    setClock(sydneyTime());
-    sync();
-    pollState();
-    const stateId = setInterval(pollState, STATE_POLL_MS);
-    const syncId = setInterval(sync, SYNC_MS);
-    const clockId = setInterval(() => setClock(sydneyTime()), 15000);
-    return () => { clearInterval(stateId); clearInterval(syncId); clearInterval(clockId); };
-  }, [pollState, sync]);
-  useEffect(() => {
-    if (active) return;
-    const id = setInterval(() => {
-      setScreen((s) => s + 1);
-      setPhotoTick((t) => t + 1);
-    }, SCREEN_ROTATE_MS);
-    return () => clearInterval(id);
-  }, [active]);
-  useEffect(() => {
-    if (!active && queue.length) {
-      setActive(queue[0]);
-      setQueue((q) => q.slice(1));
-    }
-  }, [queue, active]);
-  const tag = {
-    sales: "Wins Board",
-    gp: "Margin Watch",
-    okrs: "Team OKRs",
-    projects: "Delivery Board",
-    smartzero: "Smart Zero Pipeline",
-    mktpulse: "Marketing Pulse",
-    mktleads: "Marketing Goals",
-    thismonth: "This Month at Smart",
-    photos: "Gallery",
-  }[current];
-  return (
-    <div className="sw-root">
-      <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <div className="sw-circle sw-circle-a" aria-hidden="true" />
-      <div className="sw-circle sw-circle-b" aria-hidden="true" />
-      <header className="sw-header">
-        <div className="sw-brand">
-          <SmartIcon size={44} />
-          <div>
-            <span className="sw-logo-word">Smart Commercial Energy</span>
-            <span className="sw-logo-tag">{tag}</span>
-          </div>
-        </div>
-        <div className="sw-header-right">
-          <span className="sw-status">{status}</span>
-          <span className="sw-clock">{clock} AEST</span>
-          <button className="sw-sound" onClick={toggleSound}
-            title={soundOn ? "Sound on" : "Sound off"}>
-            {soundOn ? "\u{1F50A}" : "\u{1F507}"}
-          </button>
-        </div>
-      </header>
-      <audio ref={audioRef} src="/fanfare.mp3" preload="auto" />
-      <audio ref={deliveryAudioRef} src="/delivery.mp3" preload="auto" />
-      <div className="sw-screen" key={current + (current === "photos" ? photoTick : "")}>
-        {current === "sales" && <SalesScreen deals={state.deals} />}
-        {current === "gp" && <GpScreen gp={state.gp} />}
-        {current === "okrs" && <OkrScreen okrs={state.okrs} />}
-        {current === "projects" && <ProjectsScreen deliveries={state.deliveries} />}
-        {current === "smartzero" && <SmartZeroScreen smartZero={state.smartZero} />}
-        {current === "mktpulse" && <MarketingPulseScreen marketing={state.marketing} />}
-        {current === "mktleads" && <MarketingLeadsScreen marketing={state.marketing} />}
-        {current === "thismonth" && (
-          <ThisMonthScreen
-            birthdays={state.birthdays}
-            anniversaries={state.anniversaries}
-            announcements={state.announcements}
-          />
-        )}
-        {current === "photos" && <PhotosScreen photos={state.photos} tick={photoTick} />}
-      </div>
-      <footer className="sw-footer">
-        <div className="sw-dots">
-          {screens.map((s, i) => (
-            <button key={s} className={`sw-dot ${i === screen % screens.length ? "sw-dot-on" : ""}`}
-              onClick={() => setScreen(i)} aria-label={s} />
-          ))}
-        </div>
-      </footer>
-      {active && <Celebration key={active.id ?? "e"} event={active} onDone={() => setActive(null)} />}
-    </div>
-  );
+
+.sw-footer { display: flex; justify-content: center; padding: 10px 0 16px; position: relative; z-index: 2; }
+.sw-dots { display: flex; gap: 10px; }
+.sw-dot { width: 9px; height: 9px; border-radius: 50%; border: none; cursor: pointer; background: rgba(250,250,252,0.25); padding: 0; }
+.sw-dot-on { background: var(--sky); }
+
+.sw-celebration {
+  position: fixed; inset: 0; z-index: 50;
+  background: linear-gradient(100deg, #28066C 0%, #463282 100%);
+  display: flex; align-items: center; justify-content: center;
+  animation: sw-fadein 0.5s ease;
 }
+.sw-celebration-inner {
+  position: relative; text-align: center; max-width: 940px; padding: 0 48px; z-index: 2;
+  animation: sw-rise 0.7s cubic-bezier(.2,.9,.3,1.2);
+}
+.sw-celebration-icon { margin-bottom: 26px; }
+.sw-icon-spin { animation: sw-spin 24s linear infinite; }
+.sw-eyebrow {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 15px; letter-spacing: 0.34em; text-transform: uppercase;
+  color: #6EC8F5; margin-bottom: 20px;
+}
+.sw-headline {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(54px, 8.5vw, 118px); margin: 0 0 24px; line-height: 1;
+  letter-spacing: 0.12em; text-transform: uppercase; color: #FFFFFF;
+}
+.sw-dealname { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(20px, 2.6vw, 34px); margin: 0 0 18px; color: #9DD9F7; letter-spacing: 0.02em; }
+.sw-amount { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(38px, 5vw, 66px); color: #FAB419; margin-bottom: 20px; letter-spacing: 0.04em; }
+.sw-credit { font-family: 'Overpass', sans-serif; font-size: clamp(16px, 2vw, 24px); color: rgba(250,250,252,0.85); }
+.sw-credit strong { color: #FFFFFF; font-weight: 800; }
+.sw-delivery-msg { font-family: 'Barlow', sans-serif; font-weight: 300; font-size: clamp(22px, 3vw, 38px); line-height: 1.5; color: rgba(250,250,252,0.95); }
+.sw-delivery-msg strong { color: #9DD9F7; font-weight: 400; }
+
+@keyframes sw-fall {
+  from { transform: translate(0, -6vh) rotate(0deg); opacity: 1; }
+  to { transform: translate(var(--drift, 0px), 106vh) rotate(720deg); opacity: 0.85; }
+}
+@keyframes sw-fadein { from { opacity: 0; } }
+@keyframes sw-rise { from { opacity: 0; transform: translateY(36px) scale(0.96); } }
+@keyframes sw-spin { to { transform: rotate(360deg); } }
+
+
+.sw-celebrant-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; max-width: 1100px; }
+.sw-celebrant-list li {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+  background: rgba(250,250,252,0.05); border-left: 3px solid var(--accent, #B91982);
+  padding: 15px 20px; border-radius: 0 10px 10px 0;
+}
+.sw-celebrant-list li.sw-today { background: rgba(250,250,252,0.12); }
+.sw-celebrant-name { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(17px, 1.9vw, 26px); letter-spacing: 0.02em; }
+.sw-today-tag {
+  font-style: normal; font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--accent, #B91982); margin-left: 12px;
+}
+.sw-celebrant-detail { font-family: 'Overpass', sans-serif; font-weight: 600; font-size: 14px; color: var(--light-sky); flex-shrink: 0; }
+@media (max-width: 860px) { .sw-celebrant-list { grid-template-columns: 1fr; } }
+
+/* Decorative confetti flecks (static — for This Month) */
+.sw-flecks { position: absolute; inset: 0; pointer-events: none; }
+.sw-flecks > span { position: absolute; border-radius: 1px; }
+
+/* This Month at Smart */
+.sw-thismonth { position: relative; padding: 26px 72px 30px; }
+.sw-thismonth-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+  grid-template-areas: "b a" "n n"; position: relative; z-index: 2;
+}
+.sw-tm-panel {
+  background: rgba(250,250,252,0.05); border-top: 3px solid var(--accent, #6EC8F5);
+  border-radius: 0 0 12px 12px; padding: 18px 22px 20px;
+}
+.sw-tm-panel-wide { grid-area: n; }
+.sw-thismonth-grid > .sw-tm-panel:nth-child(1) { grid-area: b; }
+.sw-thismonth-grid > .sw-tm-panel:nth-child(2) { grid-area: a; }
+.sw-tm-panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.sw-tm-panel-head h3 {
+  margin: 0; font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 18px; letter-spacing: 0.26em; text-transform: uppercase;
+  color: var(--accent, #6EC8F5);
+}
+.sw-tm-panel ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.sw-tm-panel li {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 16px;
+  padding: 10px 0; border-bottom: 1px solid rgba(250,250,252,0.08);
+}
+.sw-tm-panel li:last-child { border-bottom: none; }
+.sw-tm-panel li.sw-today .sw-tm-name { color: #FFF; }
+.sw-tm-name { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(22px, 2.2vw, 30px); letter-spacing: 0.02em; }
+.sw-tm-msg { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(22px, 2.2vw, 30px); letter-spacing: 0.02em; }
+.sw-tm-detail { font-family: 'Overpass', sans-serif; font-weight: 600; font-size: 18px; color: var(--light-sky); flex-shrink: 0; }
+.sw-tm-empty { color: rgba(250,250,252,0.6); font-size: 18px; margin: 4px 0 0; }
+
+/* Smart Zero funnel */
+.sw-zero { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; gap: 40px; align-items: center; }
+.sw-zero-head { grid-column: 1 / -1; margin-bottom: 4px; }
+.sw-zero-goal { text-align: center; }
+.sw-zero-goal-number {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(70px, 10vw, 132px); line-height: 1;
+  letter-spacing: 0.02em; color: #FAB419; margin: 10px 0 4px;
+}
+.sw-zero-goal-of {
+  font-family: 'Barlow', sans-serif; font-weight: 400;
+  font-size: clamp(22px, 2.2vw, 30px); color: var(--light-sky); letter-spacing: 0.06em;
+}
+.sw-zero-goal-bar {
+  height: 14px; background: rgba(250,250,252,0.1); border-radius: 8px;
+  margin: 22px 40px 10px; overflow: hidden;
+}
+.sw-zero-goal-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FA7855, #FAB419);
+  border-radius: 8px; transition: width 1.5s cubic-bezier(.2,.8,.2,1);
+}
+.sw-zero-goal-pct {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 16px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: var(--sky);
+}
+.sw-zero-summary { display: flex; justify-content: center; gap: 48px; margin-top: 28px; }
+.sw-zero-summary > div { display: flex; flex-direction: column; align-items: center; }
+.sw-zero-summary-n {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(32px, 3vw, 48px); color: #FFFFFF; line-height: 1;
+}
+.sw-zero-summary-l {
+  font-family: 'Overpass', sans-serif; font-weight: 600;
+  font-size: 14px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: rgba(250,250,252,0.55); margin-top: 6px;
+}
+.sw-zero-funnel ul { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 18px; }
+.sw-zero-stage-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 14px; margin-bottom: 8px;
+}
+.sw-zero-stage-name { font-family: 'Barlow', sans-serif; font-weight: 400; font-size: clamp(22px, 2.2vw, 30px); letter-spacing: 0.02em; }
+.sw-zero-stage-nums { font-family: 'Overpass', sans-serif; font-weight: 600; font-size: 18px; color: var(--light-sky); }
+.sw-zero-bar { height: 12px; background: rgba(250,250,252,0.08); border-radius: 6px; overflow: hidden; }
+.sw-zero-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6EC8F5, #FAB419);
+  border-radius: 6px; transition: width 1.5s cubic-bezier(.2,.8,.2,1);
+}
+
+/* GP screen */
+.sw-gp { display: flex; align-items: center; justify-content: center; }
+.sw-gp-inner { text-align: center; max-width: 900px; padding: 0 32px; }
+.sw-gp-number {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(120px, 20vw, 260px); line-height: 1;
+  letter-spacing: 0.01em; margin: 14px 0 8px;
+}
+.sw-gp-on { color: #82E196; }
+.sw-gp-off { color: #FAB419; }
+.sw-gp-percent {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: 0.5em; margin-left: 6px; color: rgba(250,250,252,0.75);
+}
+.sw-gp-target {
+  font-family: 'Barlow', sans-serif; font-weight: 400;
+  font-size: clamp(26px, 2.6vw, 38px); color: var(--light-sky);
+  letter-spacing: 0.06em; margin-bottom: 12px;
+}
+.sw-gp-target strong { color: #FFFFFF; font-weight: 500; }
+.sw-gp-gap {
+  display: inline-block; margin-left: 20px;
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 18px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--sky);
+}
+.sw-gp-basis {
+  font-family: 'Overpass', sans-serif; font-weight: 600;
+  font-size: 18px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(250,250,252,0.55); margin-top: 18px;
+}
+
+/* Marketing screens */
+.sw-mkt { display: flex; flex-direction: column; }
+.sw-mkt-grid {
+  flex: 1;
+  display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr);
+  gap: 20px 28px; padding-top: 8px;
+}
+.sw-mkt-card {
+  background: rgba(250,250,252,0.05);
+  border-top: 3px solid var(--sky);
+  border-radius: 0 0 12px 12px;
+  padding: 24px 28px 28px;
+  display: flex; flex-direction: column; justify-content: center;
+  min-height: 0;
+}
+.sw-mkt-label {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 16px; letter-spacing: 0.26em; text-transform: uppercase;
+  color: var(--sky); margin-bottom: 8px;
+}
+.sw-mkt-value {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(58px, 7vw, 110px); line-height: 1;
+  letter-spacing: 0.02em; color: #FFFFFF; margin-bottom: 8px;
+}
+.sw-mkt-trend {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 18px; letter-spacing: 0.22em; text-transform: uppercase;
+}
+.sw-mkt-up { color: #82E196; }
+.sw-mkt-down { color: #FA7855; }
+
+/* Marketing leads screen (goal + landing pages) */
+.sw-mkt-leads { display: flex; flex-direction: column; }
+.sw-mkt-goal { text-align: center; padding: 20px 40px 30px; }
+.sw-mkt-goal-number {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(90px, 12vw, 180px); line-height: 1;
+  letter-spacing: 0.02em; color: #FAB419; margin: 10px 0 4px;
+}
+.sw-mkt-goal-of {
+  font-family: 'Barlow', sans-serif; font-weight: 400;
+  font-size: clamp(22px, 2.2vw, 30px); color: var(--light-sky); letter-spacing: 0.06em;
+}
+.sw-mkt-goal-bar {
+  height: 14px; background: rgba(250,250,252,0.1); border-radius: 8px;
+  margin: 20px 40px 10px; overflow: hidden;
+}
+.sw-mkt-goal-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #FA7855, #FAB419);
+  border-radius: 8px; transition: width 1.5s cubic-bezier(.2,.8,.2,1);
+}
+.sw-mkt-goal-pct {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 16px; letter-spacing: 0.24em; text-transform: uppercase;
+  color: var(--sky);
+}
+.sw-mkt-lp { padding-top: 8px; }
+.sw-mkt-lp-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+  margin-top: 14px;
+}
+.sw-mkt-lp-row .sw-mkt-card { border-top-color: var(--turquoise); }
+
+@media (max-width: 860px) {
+  .sw-zero { grid-template-columns: 1fr; }
+  .sw-thismonth-grid { grid-template-columns: 1fr; grid-template-areas: "b" "a" "n"; }
+  .sw-two-col, .sw-projects-body { grid-template-columns: 1fr; }
+  .sw-mkt-grid { grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
+  .sw-mkt-lp-row { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-icon-spin, .sw-bar-fill, .sw-screen, .sw-zero-goal-fill, .sw-zero-bar-fill { animation: none; transition: none; }
+}
+
+
+/* OKR dial screen (Team OKRs) */
+.sw-okr { display: flex; flex-direction: column; }
+.sw-okr-grid {
+  flex: 1;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 22px; align-content: center; padding-top: 6px;
+}
+.sw-okr-card {
+  background: rgba(250,250,252,0.05);
+  border-top: 3px solid var(--accent, #6EC8F5);
+  border-radius: 0 0 14px 14px;
+  padding: 22px 20px 26px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+}
+.sw-okr-dial-svg { width: 100%; max-width: 220px; height: auto; margin-bottom: 4px; }
+.sw-okr-pct {
+  font-family: 'Barlow', sans-serif; font-weight: 300;
+  font-size: clamp(38px, 3.6vw, 54px); line-height: 1; margin-top: -18px;
+}
+.sw-okr-name {
+  font-family: 'Barlow', sans-serif; font-weight: 400;
+  font-size: clamp(18px, 1.6vw, 24px); letter-spacing: 0.03em;
+  color: #FFFFFF; margin-top: 10px;
+}
+.sw-okr-badge {
+  font-family: 'Overpass', sans-serif; font-weight: 800;
+  font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase;
+  margin-top: 6px;
+}
+.sw-okr-goals {
+  font-family: 'Overpass', sans-serif; font-weight: 600;
+  font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: rgba(250,250,252,0.5); margin-top: 4px;
+}
+`;
