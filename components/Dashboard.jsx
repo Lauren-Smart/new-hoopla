@@ -441,24 +441,6 @@ function MktCard({ label, value, unit = "", change, isPositiveBetter = true, isP
   );
 }
 
-function MarketingPulseScreen({ marketing }) {
-  const m = marketing || {};
-  return (
-    <main className="sw-main sw-mkt sw-mkt-pulse">
-      <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">Last 30 days vs prior 30</div>
-        <h2>Marketing · The Pulse</h2>
-      </header>
-      <div className="sw-mkt-grid">
-        <MktCard label="Total Visitors" comingSoon />
-        <MktCard label="Visitors · Organic Search" comingSoon />
-        <MktCard label="Form Submissions" value={m.formSubmissions?.value} change={m.formSubmissions?.change} />
-        <MktCard label="LinkedIn Followers" comingSoon />
-      </div>
-    </main>
-  );
-}
-
 function MarketingLeadsScreen({ marketing }) {
   const m = marketing || {};
   const sold = m.leads?.sold ?? 0;
@@ -558,7 +540,7 @@ export default function Dashboard() {
     ...(hasGp ? ["gp"] : []),
     "projects",
     ...(hasSmartZero ? ["smartzero"] : []),
-    ...(hasMarketing ? ["mktpulse", "mktleads"] : []),
+    ...(hasMarketing ? ["mktleads"] : []),
     ...(hasThisMonth ? ["thismonth"] : []),
     ...(state.photos.length ? ["photos"] : []),
   ];
@@ -621,7 +603,6 @@ export default function Dashboard() {
     gp: "Margin Watch",
     projects: "Delivery Board",
     smartzero: "Smart Zero Pipeline",
-    mktpulse: "Marketing Pulse",
     mktleads: "Marketing Goals",
     thismonth: "This Month at Smart",
     photos: "Gallery",
@@ -658,7 +639,6 @@ export default function Dashboard() {
         {current === "gp" && <GpScreen gp={state.gp} />}
         {current === "projects" && <ProjectsScreen deliveries={state.deliveries} />}
         {current === "smartzero" && <SmartZeroScreen smartZero={state.smartZero} />}
-        {current === "mktpulse" && <MarketingPulseScreen marketing={state.marketing} />}
         {current === "mktleads" && <MarketingLeadsScreen marketing={state.marketing} />}
         {current === "thismonth" && (
           <ThisMonthScreen
