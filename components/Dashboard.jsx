@@ -423,17 +423,20 @@ function TrendArrow({ change, isPositiveBetter = true, isPercentPoints = false }
   return <span className={cls}>{sign} {magnitude.toFixed(magnitude >= 100 ? 0 : 1)}{suffix}</span>;
 }
 
-function MktCard({ label, value, unit = "", change, isPositiveBetter = true, isPercentPoints = false }) {
-  const display = value == null
+function MktCard({ label, value, unit = "", change, isPositiveBetter = true, isPercentPoints = false, comingSoon = false }) {
+  const display = comingSoon
+    ? "Coming soon"
+    : value == null
     ? "—"
     : unit === "%" ? `${Number(value).toFixed(1)}${unit}`
+    : unit === "$" ? fmtMoney(Number(value))
     : typeof value === "number" ? Math.round(value).toLocaleString("en-AU")
     : value;
   return (
-    <div className="sw-mkt-card">
+    <div className={`sw-mkt-card${comingSoon ? " sw-mkt-card-soon" : ""}`}>
       <div className="sw-mkt-label">{label}</div>
       <div className="sw-mkt-value">{display}</div>
-      <TrendArrow change={change} isPositiveBetter={isPositiveBetter} isPercentPoints={isPercentPoints} />
+      {!comingSoon && <TrendArrow change={change} isPositiveBetter={isPositiveBetter} isPercentPoints={isPercentPoints} />}
     </div>
   );
 }
@@ -447,12 +450,10 @@ function MarketingPulseScreen({ marketing }) {
         <h2>Marketing · The Pulse</h2>
       </header>
       <div className="sw-mkt-grid">
-        <MktCard label="Sessions" value={m.sessions?.value} change={m.sessions?.change} />
-        <MktCard label="New Contacts" value={m.newContacts?.value} change={m.newContacts?.change} />
-        <MktCard label="New Customers" value={m.customers?.value} change={m.customers?.change} />
-        <MktCard label="Social Interactions" value={m.socialInteractions?.value} change={m.socialInteractions?.change} />
-        <MktCard label="Conversion Rate" value={m.conversionRate?.value} unit="%" change={m.conversionRate?.change} isPercentPoints />
-        <MktCard label="Blog Views" value={m.blogViews?.value} change={m.blogViews?.change} />
+        <MktCard label="Total Visitors" comingSoon />
+        <MktCard label="Visitors · Organic Search" comingSoon />
+        <MktCard label="Form Submissions" value={m.formSubmissions?.value} change={m.formSubmissions?.change} />
+        <MktCard label="LinkedIn Followers" comingSoon />
       </div>
     </main>
   );
@@ -463,15 +464,15 @@ function MarketingLeadsScreen({ marketing }) {
   const sold = m.leads?.sold ?? 0;
   const goal = m.leads?.goal ?? 7_000_000;
   const pct = Math.min(100, (sold / goal) * 100);
-  const lp = m.landingPages || {};
+  const pipeline = m.pipeline;
   return (
     <main className="sw-main sw-mkt sw-mkt-leads">
       <header className="sw-screen-head">
-        <div className="sw-board-eyebrow">FY27 Marketing Goal · Landing Pages</div>
+        <div className="sw-board-eyebrow">FY27 Marketing Goal</div>
         <h2>Marketing · Leads &amp; Pipeline</h2>
       </header>
       <div className="sw-mkt-goal">
-        <div className="sw-board-eyebrow">Marketing-attributed pipeline · FYTD</div>
+        <div className="sw-board-eyebrow">Sold (closed-won) from marketing leads · FYTD</div>
         <div className="sw-mkt-goal-number">{fmtMoney(sold)}</div>
         <div className="sw-mkt-goal-of">of {fmtMoney(goal)} FY27 goal</div>
         <div className="sw-mkt-goal-bar">
@@ -480,11 +481,9 @@ function MarketingLeadsScreen({ marketing }) {
         <div className="sw-mkt-goal-pct">{pct.toFixed(1)}% of goal</div>
       </div>
       <div className="sw-mkt-lp">
-        <div className="sw-board-eyebrow">Landing pages · Last 30 days</div>
-        <div className="sw-mkt-lp-row">
-          <MktCard label="Views" value={lp.views} change={lp.viewsChange} />
-          <MktCard label="Submissions" value={lp.submissions} change={lp.submissionsChange} />
-          <MktCard label="Conversion Rate" value={lp.conversionRate} unit="%" change={lp.conversionChange} isPercentPoints />
+        <div className="sw-board-eyebrow">Open pipeline</div>
+        <div className="sw-mkt-lp-row sw-mkt-lp-row-single">
+          <MktCard label="$ in Marketing Pipeline" value={pipeline} unit="$" />
         </div>
       </div>
     </main>
