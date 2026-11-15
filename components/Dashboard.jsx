@@ -18,6 +18,10 @@ function fmtMoney(n) {
   return `A$${Math.round(n).toLocaleString()}`;
 }
 const fmtMoneyFull = (n) => `A$${Math.round(n).toLocaleString("en-AU")}`;
+// Planner emails arrive with subjects like "P2250 - KFC - Mansfield is now
+// complete and handed over!". Strip that tail so the screen wording reads cleanly.
+const cleanProject = (p) =>
+  String(p || "").replace(/\s*(is\s+)?now\s+complete(d)?\s+and\s+handed\s+over!?\s*$/i, "").trim();
 function fmtDate(d) {
   if (!d) return "";
   try { return new Date(d + "T00:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short" }); }
@@ -64,10 +68,15 @@ function Confetti() {
 }
 
 function Celebration({ event, onDone }) {
+  // Keep the latest onDone in a ref so the timer is NOT restarted every
+  // time the dashboard re-renders (it re-renders every 5 s when it polls,
+  // which previously kept resetting the 14 s timer forever).
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
   useEffect(() => {
-    const t = setTimeout(onDone, CELEBRATION_MS);
+    const t = setTimeout(() => doneRef.current(), CELEBRATION_MS);
     return () => clearTimeout(t);
-  }, [event, onDone]);
+  }, [event]);
   const isDeal = event.kind === "deal";
   return (
     <div className="sw-celebration">
@@ -87,7 +96,7 @@ function Celebration({ event, onDone }) {
             <div className="sw-eyebrow">Project delivered</div>
             <h1 className="sw-headline">Great News</h1>
             <p className="sw-delivery-msg">
-              <strong>{event.project}</strong> has now been completed and handed over to
+              <strong>{cleanProject(event.project)}</strong> has now been completed and handed over to
               Performance. Well done to the team on delivering another successful project!
             </p>
           </>
@@ -169,7 +178,7 @@ function ProjectsScreen({ deliveries }) {
           <ul>
             {fytd.slice(0, 8).map((d, i) => (
               <li key={`${d.project}-${i}`}>
-                <span className="sw-delivery-name">{d.project}</span>
+                <span className="sw-delivery-name">{cleanProject(d.project)}</span>
                 <span className="sw-delivery-date">{fmtDate(d.date)}</span>
               </li>
             ))}
