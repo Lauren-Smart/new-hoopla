@@ -498,6 +498,8 @@ export default function Dashboard() {
   const [clock, setClock] = useState("");
   const [soundOn, setSoundOn] = useState(false);
   const cursor = useRef(-1);
+  const versionRef = useRef(null);        // version of the board this screen loaded
+  const [needsReload, setNeedsReload] = useState(false);
   const audioRef = useRef(null);          // fanfare — plays on deal celebrations
   const deliveryAudioRef = useRef(null);  // separate sound for project deliveries
 
@@ -571,6 +573,12 @@ export default function Dashboard() {
         setQueue((q) => [...q, ...data.events]);
       }
       cursor.current = data.latestEventId ?? cursor.current;
+      // Spot a new deployment: remember the first version we see, and flag a
+      // reload if the server later reports a different one.
+      if (data.version) {
+        if (versionRef.current === null) versionRef.current = data.version;
+        else if (data.version !== versionRef.current) setNeedsReload(true);
+      }
       setStatus(`Live · updated ${sydneyTime()}`);
     } catch {
       setStatus("Connection hiccup — retrying…");
@@ -580,6 +588,15 @@ export default function Dashboard() {
   const sync = useCallback(() => { fetch("/api/sync", { cache: "no-store" }).catch(() => {}); }, []);
 
   useEffect(() => {
+    // If this load is an automatic reload after a new deployment, carry on
+    // from where the previous version left off so no celebration is missed.
+    try {
+      const resume = sessionStorage.getItem("wb-resume-cursor");
+      if (resume !== null) {
+        cursor.current = Number(resume);
+        sessionStorage.removeItem("wb-resume-cursor");
+      }
+    } catch {}
     setClock(sydneyTime());
     sync();
     pollState();
@@ -598,6 +615,14 @@ export default function Dashboard() {
     }, SCREEN_ROTATE_MS);
     return () => clearInterval(id);
   }, [active]);
+
+  // Auto-update: once a new version is live, wait until no celebration is
+  // showing or waiting, then reload the page to pick up the new code.
+  useEffect(() => {
+    if (!needsReload || active || queue.length) return;
+    try { sessionStorage.setItem("wb-resume-cursor", String(cursor.current)); } catch {}
+    window.location.reload();
+  }, [needsReload, active, queue]);
 
   // Celebration queue
   useEffect(() => {
