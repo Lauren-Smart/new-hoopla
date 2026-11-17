@@ -33,5 +33,8 @@ export async function GET(request) {
     deals, deliveries, announcements, photos, events, latestEventId,
     birthdays: celebrants.birthdays, anniversaries: celebrants.anniversaries,
     smartZero, gp, marketing: marketing || null, okrs,
+    // Which version of the board is live. The TV compares this on every poll
+    // and reloads itself when a new version has been deployed.
+    version: process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_DEPLOYMENT_ID || "dev",
   });
 }
