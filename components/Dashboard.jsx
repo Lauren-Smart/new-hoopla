@@ -5,8 +5,8 @@ import SmartIcon from "./SmartIcon";
 import { SALES_TEAM, PERFORMANCE_TEAM, FY_START } from "../lib/rosters";
 import { CSS } from "./styles";
 
-const STATE_POLL_MS = 5000;      // check for new celebration events every 5 s
-const SYNC_MS = 2 * 60 * 1000;   // HubSpot safety-net sync every 2 min
+const STATE_POLL_MS = 15000;     // check for new celebration events every 15 s
+const SYNC_MS = 5 * 60 * 1000;   // HubSpot safety-net sync every 5 min
 const SCREEN_ROTATE_MS = 10000;  // rotate screens every 20 s
 const CELEBRATION_MS = 14000;
 const BRAND_CONFETTI = ["#B91982", "#B41E1E", "#FA7855", "#FAB419", "#82E196", "#46C1BE", "#6EC8F5", "#FFFFFF"];
