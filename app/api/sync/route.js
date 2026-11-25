@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { syncDeals } from "../../../lib/hubspot";
+import { syncDeals, syncEnergised } from "../../../lib/hubspot";
 import { refreshPeopleIfStale, refreshOKRsIfStale } from "../../../lib/employmenthero";
 import { fetchMarketingSnapshot } from "../../../lib/hubspotMarketing";
 import { redis } from "../../../lib/redis";
-import { checkMailbox } from "../../../lib/mailwatch";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 // Safety-net sync: the TV calls this every couple of minutes. Deals are
@@ -21,13 +20,15 @@ export async function GET() {
     } catch (e) {
       console.error("marketing sync (inside /api/sync) failed:", e.message);
     }
-    // Project deliveries: read the automation@ inbox (emails sent by the
-    // Planner / Power Automate flow) and register any new ones.
+    // Project deliveries now come from HubSpot: Ruby moves the deal to
+    // "WON - Project ENERGIZED" and the board celebrates it. (The old
+    // automation@ inbox reader, checkMailbox, is no longer used, so the same
+    // project can't celebrate twice.)
     try {
-      const mail = await checkMailbox();
-      if (mail.newDeliveries) console.log("mailbox: new deliveries", mail.newDeliveries);
+      const done = await syncEnergised();
+      if (done.newDeliveries) console.log("energised: new deliveries", done.newDeliveries);
     } catch (e) {
-      console.error("mailbox check (inside /api/sync) failed:", e.message);
+      console.error("energised sync (inside /api/sync) failed:", e.message);
     }
     return NextResponse.json({ ok: true, ...result });
   } catch (e) {
