@@ -32,11 +32,16 @@ export async function GET(request) {
       .map((b) => ({ url: b.url, pathname: b.pathname }));
   } catch { photos = []; }
   const events = since >= 0 ? (allEvents || []).filter((e) => e.id > since) : [];
+  // Every celebration from the last 18 hours (covers overnight). Each screen remembers which
+  // ones it has already shown, so a screen that was asleep, refreshed or
+  // switched off when a win came in still plays it once it is back.
+  const cutoff = Date.now() - 18 * 60 * 60 * 1000;
+  const recent = (allEvents || []).filter((e) => (e.at || 0) >= cutoff);
   const smartZero = buildSmartZeroFunnel(smartZeroDeals || []);
   const gp = buildGp(deals || []);
   return NextResponse.json({
     deals: deals || [], deliveries: deliveries || [], announcements: announcements || [],
-    photos, events, latestEventId: Number(eventSeq) || 0,
+    photos, events, recent, latestEventId: Number(eventSeq) || 0,
     birthdays: celebrants.birthdays, anniversaries: celebrants.anniversaries,
     smartZero, gp, marketing: marketing || null, okrs: okrs || [],
     // Which version of the board is live. The TV compares this on every poll
