@@ -12,20 +12,48 @@ export default function Admin() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [screens, setScreens] = useState([]);
+  const [liveVersion, setLiveVersion] = useState("");
+  const [testMsg, setTestMsg] = useState("");
 
   const load = useCallback(async () => {
-    const [p, a] = await Promise.all([
+    const [p, a, sc] = await Promise.all([
       fetch("/api/admin/photos").then((r) => (r.ok ? r.json() : null)),
       fetch("/api/admin/announcements").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/admin/screens").then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
     if (p && a) {
       setAuthed(true);
       setPhotos(p.photos || []);
       setAnnouncements(a.announcements || []);
     }
+    if (sc) { setScreens(sc.screens || []); setLiveVersion(sc.version || ""); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  // Refresh the screen status list every 30 seconds while this page is open.
+  useEffect(() => {
+    if (!authed) return;
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, [authed, load]);
+
+  async function sendTest() {
+    setTestMsg("Sending…");
+    const res = await fetch("/api/admin/test-celebration", { method: "POST" });
+    setTestMsg(res.ok
+      ? "Sent. Every screen showing the board should celebrate within about 15 seconds."
+      : "That didn't work. Try signing in again.");
+  }
+
+  function ago(ms) {
+    if (!ms) return "never";
+    const m = Math.round((Date.now() - ms) / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return `${m} min ago`;
+    const h = Math.round(m / 60);
+    return h < 24 ? `${h} hr ago` : `${Math.round(h / 24)} days ago`;
+  }
 
   async function login(e) {
     e.preventDefault();
@@ -100,6 +128,39 @@ export default function Admin() {
     <div style={S.page}>
       <div style={{ ...S.card, maxWidth: 760 }}>
         <h1 style={S.h1}>Wins Board Admin</h1>
+
+        <h2 style={S.h2}>Screens showing the board</h2>
+        <p style={S.muted}>
+          Each screen checks in every 2 minutes. A healthy office TV says Online, On screen, Sound on.
+          Open the TV with the address new-hoopla-sand.vercel.app/?screen=TV so it is named here.
+        </p>
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          {screens.map((s) => {
+            const online = Date.now() - (s.seen || 0) < 6 * 60 * 1000;
+            const problems = [];
+            if (!online) problems.push("Offline: computer asleep, browser closed or no internet");
+            else {
+              if (!s.visible) problems.push("Board is hidden behind another window or tab");
+              if (s.sound === "blocked") problems.push("Sound blocked: click once on the TV screen");
+              if (s.sound === "off") problems.push("Sound turned off: click the speaker button on the TV");
+              if (liveVersion && s.version && s.version !== liveVersion) problems.push("Running an old version: refresh the TV browser");
+            }
+            return (
+              <li key={s.id} style={{ ...S.annRow, borderLeftColor: problems.length ? "#FA7855" : "#82E196", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                <strong>{s.name || "Unnamed screen"}: {online ? "Online" : "Offline"}{online && s.visible ? ", On screen" : ""}{online && s.sound === "on" ? ", Sound on" : ""}</strong>
+                <span style={{ fontSize: 13, opacity: 0.75 }}>
+                  Last checked in {ago(s.seen)}. Last celebration shown: {s.lastShown ? `${s.lastShown} (${ago(s.lastShownAt)})` : "none yet"}.
+                </span>
+                {problems.map((p) => <span key={p} style={{ fontSize: 13, color: "#FAB419" }}>{p}</span>)}
+              </li>
+            );
+          })}
+          {!screens.length && <p style={S.muted}>No screens have checked in yet.</p>}
+        </ul>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={sendTest} style={S.btn}>Send a test celebration</button>
+          {testMsg && <span style={{ fontSize: 14, color: "#9DD9F7" }}>{testMsg}</span>}
+        </div>
 
         <h2 style={S.h2}>Photos on the TV</h2>
         <label style={S.uploadBox}>
