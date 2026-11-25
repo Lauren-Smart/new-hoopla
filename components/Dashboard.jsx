@@ -408,6 +408,86 @@ function GpScreen({ gp }) {
 }
 
 
+
+// Styles for the Forecast Deals screen (brand colours from the 2026 guideline).
+const FORECAST_CSS = `
+.sw-forecast { display: flex; flex-direction: column; min-height: 0; }
+.sw-forecast-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.sw-forecast-total { text-align: right; }
+.sw-forecast-total-n {
+  font-family: 'Barlow', sans-serif; font-weight: 300; line-height: 1;
+  font-size: clamp(44px, 4.6vw, 72px); color: #FAB419; letter-spacing: 0.02em;
+}
+.sw-forecast-total-l {
+  font-family: 'Overpass', sans-serif; font-weight: 800; font-size: 14px;
+  letter-spacing: 0.24em; text-transform: uppercase; color: #6EC8F5; margin-top: 6px;
+}
+.sw-forecast-grid {
+  flex: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr); gap: 18px 22px; margin-top: 22px; min-height: 0;
+}
+.sw-forecast-card {
+  background: rgba(250,250,252,0.06); border-top: 3px solid #82E196;
+  border-radius: 0 0 12px 12px; padding: 18px 22px 20px;
+  display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden;
+}
+.sw-forecast-name {
+  font-family: 'Barlow', sans-serif; font-weight: 400; color: #FFFFFF;
+  font-size: clamp(20px, 1.75vw, 30px); line-height: 1.25; letter-spacing: 0.01em;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.sw-forecast-amount {
+  font-family: 'Barlow', sans-serif; font-weight: 300; line-height: 1;
+  font-size: clamp(30px, 2.8vw, 46px); color: #FAB419; margin-top: auto;
+}
+.sw-forecast-meta {
+  display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  font-family: 'Overpass', sans-serif; font-weight: 600; font-size: clamp(13px, 1vw, 16px);
+  color: #9DD9F7;
+}
+.sw-forecast-meta strong { color: #FAFAFC; font-weight: 800; }
+.sw-forecast-more {
+  font-family: 'Overpass', sans-serif; font-weight: 800; font-size: 14px;
+  letter-spacing: 0.22em; text-transform: uppercase; color: rgba(250,250,252,0.6); margin-top: 14px;
+}
+@media (max-width: 860px) { .sw-forecast-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+`;
+const MAX_FORECAST_CARDS = 12;
+
+function ForecastScreen({ forecast }) {
+  const total = forecast.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+  const shown = forecast.slice(0, MAX_FORECAST_CARDS);
+  const extra = forecast.length - shown.length;
+  return (
+    <main className="sw-main sw-forecast">
+      <style dangerouslySetInnerHTML={{ __html: FORECAST_CSS }} />
+      <div className="sw-forecast-top">
+        <header className="sw-screen-head">
+          <div className="sw-board-eyebrow">Sales Pipeline · Forecast stage</div>
+          <h2>Forecast Deals</h2>
+        </header>
+        <div className="sw-forecast-total">
+          <div className="sw-forecast-total-n">{fmtMoney(total)}</div>
+          <div className="sw-forecast-total-l">{forecast.length} {forecast.length === 1 ? "deal" : "deals"} in forecast</div>
+        </div>
+      </div>
+      <div className="sw-forecast-grid">
+        {shown.map((d) => (
+          <article key={d.id} className="sw-forecast-card">
+            <div className="sw-forecast-name">{d.dealname}</div>
+            <div className="sw-forecast-amount">{fmtMoneyFull(d.amount)}</div>
+            <div className="sw-forecast-meta">
+              <span><strong>{d.owner}</strong></span>
+              <span>Closing {fmtDate(d.closedate) || "TBC"}</span>
+            </div>
+          </article>
+        ))}
+      </div>
+      {extra > 0 && <div className="sw-forecast-more">Plus {extra} more {extra === 1 ? "deal" : "deals"} in forecast</div>}
+    </main>
+  );
+}
+
 function CelebrantsScreen() { return null; } // replaced by ThisMonthScreen (kept as safe stub)
 
 function PhotosScreen({ photos, tick }) {
@@ -490,7 +570,7 @@ export default function Dashboard() {
     birthdays: [], anniversaries: [],
     smartZero: { stages: [], sold: 0, goal: 250000 },
     gp: { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
-    marketing: null,
+    marketing: null, forecast: [],
   });
   const [queue, setQueue] = useState([]);
   const [active, setActive] = useState(null);
@@ -581,10 +661,12 @@ export default function Dashboard() {
   const hasSmartZero = (state.smartZero?.stages || []).some((s) => s.count > 0);
   const hasGp = (state.gp?.dealsCounted || 0) > 0;
   const hasMarketing = !!state.marketing;
+  const hasForecast = (state.forecast || []).length > 0;
 
   const screens = [
     "sales",
     ...(hasGp ? ["gp"] : []),
+    ...(hasForecast ? ["forecast"] : []),
     "projects",
     ...(hasSmartZero ? ["smartzero"] : []),
     ...(hasMarketing ? ["mktleads"] : []),
@@ -604,6 +686,7 @@ export default function Dashboard() {
         smartZero: data.smartZero || { stages: [], sold: 0, goal: 250000 },
         gp: data.gp || { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
         marketing: data.marketing || null,
+        forecast: data.forecast || [],
       });
       // Queue every recent celebration this screen hasn't shown yet. This is
       // what makes it foolproof: if the screen was asleep, refreshed or off
@@ -730,6 +813,7 @@ export default function Dashboard() {
     sales: "Wins Board",
     gp: "Margin Watch",
     projects: "Delivery Board",
+    forecast: "Forecast Deals",
     smartzero: "Smart Zero Pipeline",
     mktleads: "Marketing Goals",
     thismonth: "This Month at Smart",
@@ -766,6 +850,7 @@ export default function Dashboard() {
       <div className="sw-screen" key={current + (current === "photos" ? photoTick : "")}>
         {current === "sales" && <SalesScreen deals={state.deals} />}
         {current === "gp" && <GpScreen gp={state.gp} />}
+        {current === "forecast" && <ForecastScreen forecast={state.forecast} />}
         {current === "projects" && <ProjectsScreen deliveries={state.deliveries} />}
         {current === "smartzero" && <SmartZeroScreen smartZero={state.smartZero} />}
         {current === "mktleads" && <MarketingLeadsScreen marketing={state.marketing} />}
