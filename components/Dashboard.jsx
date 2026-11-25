@@ -9,6 +9,8 @@ const STATE_POLL_MS = 15000;     // check for new celebration events every 15 s
 const SYNC_MS = 5 * 60 * 1000;   // HubSpot safety-net sync every 5 min
 const SCREEN_ROTATE_MS = 10000;  // rotate screens every 20 s
 const CELEBRATION_MS = 14000;
+const HEARTBEAT_MS = 2 * 60 * 1000; // tell the server this screen is alive every 2 min
+const MAX_CATCH_UP = 8;            // most missed celebrations to replay in one go
 const BRAND_CONFETTI = ["#B91982", "#B41E1E", "#FA7855", "#FAB419", "#82E196", "#46C1BE", "#6EC8F5", "#FFFFFF"];
 
 // ── helpers ─────────────────────────────────────────────────
@@ -85,10 +87,10 @@ function Celebration({ event, onDone }) {
         <div className="sw-celebration-icon"><SmartIcon size={110} mono spin /></div>
         {isDeal ? (
           <>
-            <div className="sw-eyebrow">{event.team === "performance" ? "Service contract won" : "Project sold"}</div>
+            <div className="sw-eyebrow">{event.test ? "Test run" : event.team === "performance" ? "Service contract won" : "Project sold"}</div>
             <h1 className="sw-headline">Deal Closed</h1>
             <p className="sw-dealname">{event.dealname}</p>
-            <div className="sw-amount">{fmtMoneyFull(event.amount)}</div>
+            {!event.test && <div className="sw-amount">{fmtMoneyFull(event.amount)}</div>}
             <p className="sw-credit">Congratulations <strong>{event.owner}</strong></p>
           </>
         ) : (
@@ -497,8 +499,17 @@ export default function Dashboard() {
   const [status, setStatus] = useState("Connecting…");
   const [clock, setClock] = useState("");
   const [soundOn, setSoundOn] = useState(false);
-  const cursor = useRef(-1);
   const versionRef = useRef(null);        // version of the board this screen loaded
+  // Celebrations this screen has already shown (kept across refreshes and
+  // restarts), and ones currently waiting, so nothing plays twice.
+  const shownRef = useRef(new Set());
+  const queuedRef = useRef(new Set());
+  const lastShownRef = useRef({ name: "", at: 0 });
+  const screenIdRef = useRef("");
+  const screenNameRef = useRef("Unnamed screen");
+  const wakeLockRef = useRef(null);
+  const [visible, setVisible] = useState(true);
+  const [soundBlocked, setSoundBlocked] = useState(false);
   const [needsReload, setNeedsReload] = useState(false);
   const audioRef = useRef(null);          // fanfare — plays on deal celebrations
   const deliveryAudioRef = useRef(null);  // separate sound for project deliveries
@@ -506,24 +517,49 @@ export default function Dashboard() {
   // Remember the sound preference; browsers still need one click per
   // session before audio is allowed, which the speaker button provides.
   useEffect(() => {
-    if (typeof window !== "undefined" && localStorage.getItem("wb-sound") === "on") {
-      setSoundOn(true);
-    }
+    try {
+      if (localStorage.getItem("wb-sound") === "on") setSoundOn(true);
+      const saved = JSON.parse(localStorage.getItem("wb-shown") || "[]");
+      shownRef.current = new Set(saved);
+      // Give each screen an ID, and a name if the address has ?screen=TV
+      let id = localStorage.getItem("wb-screen-id");
+      if (!id) { id = Math.random().toString(36).slice(2, 10); localStorage.setItem("wb-screen-id", id); }
+      screenIdRef.current = id;
+      const fromUrl = new URLSearchParams(window.location.search).get("screen");
+      if (fromUrl) localStorage.setItem("wb-screen-name", fromUrl);
+      screenNameRef.current = localStorage.getItem("wb-screen-name") || "Unnamed screen";
+    } catch {}
   }, []);
+
+  const unlockAudio = useCallback(() => {
+    [audioRef.current, deliveryAudioRef.current].forEach((a) => {
+      if (!a) return;
+      a.volume = 0;
+      a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; setSoundBlocked(false); })
+        .catch(() => setSoundBlocked(true));
+    });
+  }, []);
+
+  // If sound is meant to be on, check straight away whether the browser will
+  // actually allow it, and let any click or key press on the page unlock it.
+  useEffect(() => {
+    if (!soundOn) { setSoundBlocked(false); return; }
+    unlockAudio();
+    const onGesture = () => unlockAudio();
+    window.addEventListener("pointerdown", onGesture);
+    window.addEventListener("keydown", onGesture);
+    return () => {
+      window.removeEventListener("pointerdown", onGesture);
+      window.removeEventListener("keydown", onGesture);
+    };
+  }, [soundOn, unlockAudio]);
 
   const toggleSound = () => {
     const next = !soundOn;
     setSoundOn(next);
     localStorage.setItem("wb-sound", next ? "on" : "off");
-    if (next) {
-      // The click itself unlocks audio for the whole page — prime both
-      // elements silently so either can play the moment its cue arrives.
-      [audioRef.current, deliveryAudioRef.current].forEach((a) => {
-        if (!a) return;
-        a.volume = 0;
-        a.play().then(() => { a.pause(); a.currentTime = 0; a.volume = 1; }).catch(() => {});
-      });
-    }
+    // The click itself unlocks audio for the whole page.
+    if (next) unlockAudio();
   };
 
   // Play the matching sound when a celebration takes the screen —
@@ -534,7 +570,7 @@ export default function Dashboard() {
     if (!a) return;
     a.currentTime = 0;
     a.volume = 1;
-    a.play().catch(() => {});
+    a.play().catch(() => setSoundBlocked(true));
   }, [active, soundOn]);
 
   const ownerNameOf = useCallback(
@@ -559,7 +595,7 @@ export default function Dashboard() {
 
   const pollState = useCallback(async () => {
     try {
-      const res = await fetch(`/api/state?since=${cursor.current}`, { cache: "no-store" });
+      const res = await fetch("/api/state", { cache: "no-store" });
       const data = await res.json();
       setState({
         deals: data.deals || [], deliveries: data.deliveries || [],
@@ -569,10 +605,17 @@ export default function Dashboard() {
         gp: data.gp || { avgPercent: 0, goalPercent: 20, dealsCounted: 0, totalDollars: 0 },
         marketing: data.marketing || null,
       });
-      if (cursor.current >= 0 && data.events?.length) {
-        setQueue((q) => [...q, ...data.events]);
+      // Queue every recent celebration this screen hasn't shown yet. This is
+      // what makes it foolproof: if the screen was asleep, refreshed or off
+      // when a win came in, it still plays as soon as the screen is back.
+      const missed = (data.recent || [])
+        .filter((e) => e.id != null && !shownRef.current.has(e.id) && !queuedRef.current.has(e.id))
+        .sort((a, b) => a.id - b.id)
+        .slice(-MAX_CATCH_UP);
+      if (missed.length) {
+        missed.forEach((e) => queuedRef.current.add(e.id));
+        setQueue((q) => [...q, ...missed]);
       }
-      cursor.current = data.latestEventId ?? cursor.current;
       // Spot a new deployment: remember the first version we see, and flag a
       // reload if the server later reports a different one.
       if (data.version) {
@@ -588,15 +631,6 @@ export default function Dashboard() {
   const sync = useCallback(() => { fetch("/api/sync", { cache: "no-store" }).catch(() => {}); }, []);
 
   useEffect(() => {
-    // If this load is an automatic reload after a new deployment, carry on
-    // from where the previous version left off so no celebration is missed.
-    try {
-      const resume = sessionStorage.getItem("wb-resume-cursor");
-      if (resume !== null) {
-        cursor.current = Number(resume);
-        sessionStorage.removeItem("wb-resume-cursor");
-      }
-    } catch {}
     setClock(sydneyTime());
     sync();
     pollState();
@@ -620,17 +654,77 @@ export default function Dashboard() {
   // showing or waiting, then reload the page to pick up the new code.
   useEffect(() => {
     if (!needsReload || active || queue.length) return;
-    try { sessionStorage.setItem("wb-resume-cursor", String(cursor.current)); } catch {}
     window.location.reload();
   }, [needsReload, active, queue]);
 
-  // Celebration queue
+  // Celebration queue. Waits while the board isn't on screen (e.g. another
+  // window is in front), so celebrations play when people can see them.
   useEffect(() => {
-    if (!active && queue.length) {
+    if (!active && queue.length && visible) {
       setActive(queue[0]);
       setQueue((q) => q.slice(1));
     }
-  }, [queue, active]);
+  }, [queue, active, visible]);
+
+  // Once a celebration has finished, remember it so it never replays here.
+  const finishCelebration = useCallback(() => {
+    setActive((ev) => {
+      if (ev && ev.id != null) {
+        shownRef.current.add(ev.id);
+        queuedRef.current.delete(ev.id);
+        lastShownRef.current = { name: ev.kind === "deal" ? ev.dealname : cleanProject(ev.project), at: Date.now() };
+        try { localStorage.setItem("wb-shown", JSON.stringify([...shownRef.current].slice(-300))); } catch {}
+      }
+      return null;
+    });
+  }, []);
+
+  // Keep the screen from going to sleep while the board is showing, and
+  // notice when the board is hidden behind another window or tab.
+  useEffect(() => {
+    const requestWake = async () => {
+      try {
+        if ("wakeLock" in navigator && document.visibilityState === "visible") {
+          wakeLockRef.current = await navigator.wakeLock.request("screen");
+          wakeLockRef.current.addEventListener("release", () => { wakeLockRef.current = null; });
+        }
+      } catch {}
+    };
+    const onVis = () => {
+      const v = document.visibilityState === "visible";
+      setVisible(v);
+      if (v) { requestWake(); pollState(); }
+    };
+    onVis();
+    document.addEventListener("visibilitychange", onVis);
+    const wakeId = setInterval(() => { if (!wakeLockRef.current) requestWake(); }, 60000);
+    return () => { document.removeEventListener("visibilitychange", onVis); clearInterval(wakeId); };
+  }, [pollState]);
+
+  // Check in with the server so /admin can show whether this screen is
+  // awake, visible, has sound working, and what it last celebrated.
+  const visibleRef = useRef(true);
+  const soundRef = useRef("off");
+  visibleRef.current = visible;
+  soundRef.current = !soundOn ? "off" : soundBlocked ? "blocked" : "on";
+  useEffect(() => {
+    const beat = () => {
+      if (!screenIdRef.current) return;
+      fetch("/api/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: screenIdRef.current, name: screenNameRef.current,
+          visible: visibleRef.current, sound: soundRef.current,
+          awake: !!wakeLockRef.current, version: (versionRef.current || "").slice(0, 12),
+          lastShown: lastShownRef.current.name, lastShownAt: lastShownRef.current.at,
+        }),
+      }).catch(() => {});
+    };
+    const first = setTimeout(beat, 5000);
+    const id = setInterval(beat, HEARTBEAT_MS);
+    return () => { clearTimeout(first); clearInterval(id); };
+  }, []);
 
   const tag = {
     sales: "Wins Board",
@@ -659,6 +753,7 @@ export default function Dashboard() {
         <div className="sw-header-right">
           <span className="sw-status">{status}</span>
           <span className="sw-clock">{clock} AEST</span>
+          {soundBlocked && <span className="sw-status" style={{ color: "#FAB419" }}>Click anywhere to allow sound</span>}
           <button className="sw-sound" onClick={toggleSound}
             title={soundOn ? "Sound on" : "Sound off"}>
             {soundOn ? "\u{1F50A}" : "\u{1F507}"}
@@ -693,7 +788,7 @@ export default function Dashboard() {
         </div>
       </footer>
 
-      {active && <Celebration key={active.id ?? "e"} event={active} onDone={() => setActive(null)} />}
+      {active && <Celebration key={active.id ?? "e"} event={active} onDone={finishCelebration} />}
     </div>
   );
 }
