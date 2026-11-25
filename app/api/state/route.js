@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const since = Number(searchParams.get("since") ?? -1);
-  const [deals, deliveries, announcements, smartZeroDeals, eventSeq, allEvents, marketing, people, okrs] =
+  const [deals, deliveries, announcements, smartZeroDeals, eventSeq, allEvents, marketing, people, okrs, forecast] =
     await redis.mget(
       "wb:deals",
       "wb:deliveries",
@@ -21,7 +21,8 @@ export async function GET(request) {
       "wb:events",
       "wb:marketing",
       "wb:people",
-      "wb:eh:okrs"
+      "wb:eh:okrs",
+      "wb:forecast"
     );
   const celebrants = await getCelebrants(people || []);
   let photos = [];
@@ -43,7 +44,7 @@ export async function GET(request) {
     deals: deals || [], deliveries: deliveries || [], announcements: announcements || [],
     photos, events, recent, latestEventId: Number(eventSeq) || 0,
     birthdays: celebrants.birthdays, anniversaries: celebrants.anniversaries,
-    smartZero, gp, marketing: marketing || null, okrs: okrs || [],
+    smartZero, gp, marketing: marketing || null, okrs: okrs || [], forecast: forecast || [],
     // Which version of the board is live. The TV compares this on every poll
     // and reloads itself when a new version has been deployed.
     version: process.env.VERCEL_GIT_COMMIT_SHA || process.env.VERCEL_DEPLOYMENT_ID || "dev",
